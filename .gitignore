@@ -1,0 +1,5 @@
+node_modules/
+release/
+.harness-data/
+shots/
+*.log

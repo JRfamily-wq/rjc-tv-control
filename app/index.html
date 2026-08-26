@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RJC TV Control</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="side-stripe" aria-hidden="true"></div>
+      <div class="side-brand">
+        <img class="brand-logo" src="assets/logo.png" alt="R.J. Corman" draggable="false" />
+        <span class="brand-sub">Fitness Center &middot; TV Control</span>
+      </div>
+      <nav id="zoneNav"></nav>
+      <div id="sceneList"></div>
+      <div class="side-foot">
+        <button class="side-row" data-act="open-settings" id="settingsRow"></button>
+        <div class="side-meta">R.J. Corman Fitness Center<span>TV Control &middot; v1.0</span></div>
+      </div>
+    </aside>
+
+    <div class="canvas">
+      <div class="dragstrip" aria-hidden="true"></div>
+      <header class="canv-head">
+        <div class="head-titles">
+          <div class="eyebrow" id="eyebrow"></div>
+          <h1 class="page-title" id="pageTitle">All TVs</h1>
+          <div class="meta" id="metaLine"></div>
+        </div>
+        <div class="head-actions">
+          <button id="demoChip" class="demo-chip" data-act="open-settings" data-tab="general" hidden>
+            <span class="dot"></span>Demo mode
+          </button>
+          <div class="clockblock"><div class="t" id="clock">--:--</div></div>
+          <div class="btn-group" id="powerGroup">
+            <button data-act="power-all-on" title="Wake every box">All on</button>
+            <button data-act="power-all-off" title="Standby every box">All off</button>
+          </div>
+          <button id="selectToggle" class="btn quiet" data-act="toggle-select">Select</button>
+          <button class="iconbtn" data-act="theme" id="themeBtn" title="Light / dark"></button>
+          <button class="iconbtn" data-act="fullscreen" id="fsBtn" title="Fullscreen"></button>
+          <button id="tuneShown" class="btn primary" data-act="tune-shown">Tune all</button>
+        </div>
+      </header>
+      <div class="mix" id="mixbar" hidden></div>
+      <main id="grid" class="sections" aria-live="polite"></main>
+    </div>
+  </div>
+
+  <div id="previewHost"></div>
+  <div id="sleepHost"></div>
+  <div id="selbar" class="selbar" hidden></div>
+  <div id="modalHost"></div>
+  <div id="toastHost" class="toast-host" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

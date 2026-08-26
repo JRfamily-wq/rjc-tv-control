@@ -1,0 +1,35 @@
+{
+  "name": "rjc-gym-tv",
+  "productName": "RJC TV Control",
+  "version": "1.0.0",
+  "description": "R.J. Corman gym TV control - DirecTV SHEF dashboard",
+  "private": true,
+  "main": "electron/main.cjs",
+  "author": "drew",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.drew.rjcgymtv",
+    "productName": "RJC TV Control",
+    "directories": { "output": "release" },
+    "files": [
+      "app/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "RJC-TV-Control.exe"
+    },
+    "npmRebuild": false
+  }
+}
