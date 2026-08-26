@@ -877,11 +877,63 @@ function audioTab() {
     <div class="card slim"><h3>${I.speaker} BSS Soundweb London</h3>
       <div class="field-row"><label>Speaker control<span class="hint">Shows the volume sliders in the sidebar</span></label>
         <span class="switch"><input type="checkbox" ${a.enabled ? 'checked' : ''} data-bind="audio-enabled"/><span class="track"></span></span></div>
+      <div class="field-row"><label>Control path<span class="hint">DI and HiQnet are always-on network ports; Serial is RS-232 straight into the BLU-100</span></label>
+        <select data-bind="audio-protocol" style="width:210px">
+          <option value="di" ${(a.protocol || 'di') === 'di' ? 'selected' : ''}>DI over network (:1023)</option>
+          <option value="hiqnet" ${a.protocol === 'hiqnet' ? 'selected' : ''}>HiQnet (:3804)</option>
+          <option value="serial" ${a.protocol === 'serial' ? 'selected' : ''}>DI over RS-232 (COM)</option>
+        </select></div>
       <div class="field-row"><label>BLU-100 IP address</label>
         <span class="pairbox">
           <input type="text" value="${esc(a.ip || '')}" data-bind="audio-ip" placeholder="192.168.1.x" style="width:140px;font-family:var(--mono)"/>
           <button class="mini" data-act="audio-test">Test :1023</button>
         </span></div>
+      ${a.protocol === 'serial' ? `
+      <div class="field-row"><label>COM port<span class="hint">115200 8-N-1 — over serial use node 0x0 in addresses</span></label>
+        <input type="text" value="${esc(a.comPort || '')}" data-bind="audio-com" placeholder="COM3" style="width:100px;font-family:var(--mono)"/></div>` : ''}
+    </div>
+    <div class="card slim"><h3>${I.radar} Find the processor</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">
+        <b>Verify identity</b> proves who really answers the IP (a BSS box's MAC is 00-0f-d4 + its node number — anything else = IP conflict).
+        <b>Listen</b> passively collects the announcements every London box broadcasts: node, MAC, the IP it <i>claims</i>, and the IP it <i>sent from</i>.
+        <b>Port scan</b> shows which control services answer.</p>
+      <div class="trow">
+        <button class="mini" data-act="tool-arp">Verify identity</button>
+        <button class="mini" data-act="tool-listen">Listen 25s (passive)</button>
+        <button class="mini" data-act="tool-portscan">Port scan</button>
+        ${ui.audioTools && ui.audioTools.busy ? '<span class="scan-status"><span class="spinner"></span> working…</span>' : ''}
+      </div>
+      ${ui.audioTools && ui.audioTools.html ? `<div style="margin-top:10px">${ui.audioTools.html}</div>` : ''}
+    </div>
+    <div class="card slim"><h3>${I.clipboard} Paste from London Architect</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">
+        In London Architect, hold <b>ALT and move a fader</b> (or select the gain object) — the Direct Inject toolbar shows a byte string like
+        <code style="font-family:var(--mono)">02 88 75 B0 03 00 01 5A …</code>. Paste it here (hex or decimal, commas or spaces) and the address decodes itself.</p>
+      <div class="trow">
+        <input type="text" id="diPaste" value="${esc((ui.keep || {}).diPaste || '')}" placeholder="02 88 75 B0 03 00 01 5A 00 00 00 00 00 00 5F 03" style="flex:1;min-width:280px;font-family:var(--mono)"/>
+        <button class="mini" data-act="tool-decode">Decode</button>
+      </div>
+      ${ui.diDecoded ? (ui.diDecoded.err ? `<p class="tres err" style="margin-top:8px">${esc(ui.diDecoded.err)}</p>` : `
+      <div class="row-grid" style="grid-template-columns:1.6fr 0.7fr auto;margin-top:8px">
+        <span class="ip">${esc(ui.diDecoded.addr)} &nbsp;param ${esc(String(ui.diDecoded.param))}${ui.diDecoded.valueNote ? ` &nbsp;· ${esc(ui.diDecoded.valueNote)}` : ''}</span>
+        <span class="pairbox"><select id="decZone" style="width:150px">
+          ${(a.zones || []).map((z) => `<option value="${esc(z.id)}">${esc(z.name)}</option>`).join('')}
+        </select></span>
+        <button class="mini" data-act="tool-decode-use">Use for zone</button>
+      </div>`) : ''}
+    </div>
+    <div class="card slim"><h3>${I.sliders} Manual control tester</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">Talks over the selected control path. Read shows the live value; Set −6 dB / Set 0 dB write absolute gain; Bump nudges relatively (DI only).</p>
+      <div class="trow">
+        <input type="text" id="rawAddr" value="${esc((ui.keep || {}).rawAddr || '')}" placeholder="0x75B0,0x3,0x15A" style="width:190px;font-family:var(--mono)"/>
+        <input type="number" id="rawParam" value="${esc((ui.keep || {}).rawParam ?? '0')}" min="0" max="99" style="width:64px" title="Parameter #"/>
+        <button class="mini" data-act="raw-read">Read</button>
+        <button class="mini" data-act="raw-dip">Set &minus;6 dB</button>
+        <button class="mini" data-act="raw-zero">Set 0 dB</button>
+        <button class="mini" data-act="raw-bump-down">Bump &minus;10%</button>
+        <button class="mini" data-act="raw-bump-up">Bump +10%</button>
+      </div>
+      ${ui.rawResult ? `<p class="tres" style="margin-top:8px">${esc(ui.rawResult)}</p>` : ''}
     </div>
     <div class="card slim"><h3>${I.zonebox} Speaker zones</h3>
       <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">Each zone needs its gain object's HiQnet address from the design — get it with the free HARMAN <b>Audio Architect</b> app (see steps below). Format: <code style="font-family:var(--mono)">node,vd,object</code> — hex like <code style="font-family:var(--mono)">0x100,0x3,0x152</code> is fine.</p>
@@ -926,12 +978,16 @@ function audioTab() {
         </div>`;
       }).join('')}` : `<p class="tres err" style="margin-top:8px">${esc(probeDiagText(ui.audioProbe))}</p>`) : ''}
     </div>
-    <div class="card slim guide"><h3>${I.clipboard} Getting the addresses (one laptop session)</h3>
+    <div class="card slim guide"><h3>${I.clipboard} Field runbook — in this order</h3>
       <ol>
-        <li>Install HARMAN <b>Audio Architect</b> (free) on a laptop on the gym network.</li>
-        <li>Let it discover the BLU-100 (that reveals its IP for the field above), then go <b>online</b> and open the design living in the device.</li>
-        <li>Find the gain/fader block feeding each speaker zone; its properties show the <b>HiQnet address</b> (node / virtual device / object) — type it here. Gain # and Mute # are that block's parameter numbers (0 and 1 for a standard single-channel gain; per-channel blocks count up).</li>
-        <li>Test with the slider at a quiet hour — if the wrong thing moves, it's the wrong block; pick the next gain in the chain.</li>
+        <li><b>Reconnect the BLU-100's Ethernet</b> (its ONE network port — the two BLU-link jacks are audio only). Wait 30s.</li>
+        <li><b>Verify identity</b> above. MAC must start <code style="font-family:var(--mono)">00-0f-d4</code> and end with the node number (75-b0). Wrong MAC = IP conflict → use NetSetter to move the BLU-100 to a free IP, update the field above.</li>
+        <li><b>Listen 25s</b> — the box announces itself: confirms node, MAC, and its real IP without sending anything.</li>
+        <li>Tap <b>Fix firewall</b> once (approve the admin prompt), close Audio Architect / NetSetter / London Architect, then <b>Probe</b> — DI and HiQnet are always-on; a reachable box answers.</li>
+        <li><b>Addresses without probing:</b> search the laptop for <code style="font-family:var(--mono)">*.architect</code> files, open the gym design in London Architect <b>OFFLINE ONLY</b>, click the gain before each output — Properties shows the HiQnet address — or ALT+drag the fader and paste the toolbar string above.</li>
+        <li>⚠️ In London Architect never go online with a mismatched file (it OVERWRITES the device), never "Send Values", never accept firmware prompts. "Receive Values" is the safe choice.</li>
+        <li>If the network path stays dead: switch Control path to <b>DI over RS-232</b>, plug a USB-serial adapter into the BLU-100's 9-pin port (115200 8-N-1, address node <code style="font-family:var(--mono)">0x0</code>), and use the Manual tester — serial DI is always on.</li>
+        <li>Gain params: 0 = gain, 1 = mute on a standard single-channel gain block; per-channel blocks count upward. Values are dB×10000 in the ±10 dB range.</li>
       </ol></div>`;
 }
 
@@ -996,6 +1052,21 @@ function diagTab() {
           <span style="display:flex;gap:6px;align-items:center;justify-content:flex-end">${pingRes}<button class="mini" data-act="diag-ping" data-id="${esc(b.id)}" data-ip="${esc(b.ip)}">Ping</button></span>
         </div>`;
       }).join('')}
+    </div>
+
+    <div class="card"><h3>${I.feed} AMX NetLinx console <span class="hint" style="font-weight:400">talk to the old controller directly (telnet :23) — try <code style="font-family:var(--mono)">show device</code></span></h3>
+      <div class="trow">
+        <input type="text" id="amxIp" placeholder="AMX master IP" value="${esc((ui.amx && ui.amx.ip) || (ui.keep || {}).amxIp || '')}" style="width:150px;font-family:var(--mono)"/>
+        ${ui.amx && ui.amx.open
+          ? `<button class="mini warn" data-act="amx-close">Disconnect</button>`
+          : `<button class="mini" data-act="amx-open">Connect</button>`}
+      </div>
+      ${ui.amx && ui.amx.open ? `
+      <pre id="amxOut" style="margin-top:10px;max-height:240px;overflow:auto;background:var(--surface-2);border:1px solid var(--hairline);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;user-select:text">${esc((ui.amx.buf || []).join(''))}</pre>
+      <div class="trow" style="margin-top:8px">
+        <input type="text" id="amxCmd" placeholder="show device" style="flex:1;font-family:var(--mono)"/>
+        <button class="mini" data-act="amx-send">Send</button>
+      </div>` : ''}
     </div>
 
     <div class="card"><h3>${I.radar} Connection testers</h3>
@@ -1514,6 +1585,30 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'log-clear': await api.logClear(); ui.diag.log = []; refreshDiag(); break;
+    case 'amx-open': {
+      const ip = (($('#amxIp') || {}).value || '').trim();
+      if (!ip) { toast('Enter the AMX master IP', 'warn'); break; }
+      const r = await api.amxOpen({ ip, port: 23 });
+      if (!r.ok) { toast(`AMX console: ${r.err}`, 'err'); break; }
+      ui.amx = { ip, open: true, buf: [] };
+      renderModal();
+      break;
+    }
+    case 'amx-send': {
+      const cmd = (($('#amxCmd') || {}).value || '').trim();
+      if (!cmd) break;
+      if (ui.amx) ui.amx.buf.push(`> ${cmd}\n`);
+      await api.amxSend({ text: cmd });
+      const cmdEl = $('#amxCmd'); if (cmdEl) cmdEl.value = '';
+      renderModal();
+      break;
+    }
+    case 'amx-close': {
+      await api.amxClose();
+      if (ui.amx) ui.amx.open = false;
+      renderModal();
+      break;
+    }
     case 'diag-ping': {
       const id = btn.dataset.id;
       const feed = feedOf(id);
@@ -1617,6 +1712,82 @@ document.addEventListener('click', async (e) => {
       ui.audioProbe = { running: false, found: r.ok ? r.found : [], diag: r.diag, range: rangeRaw, nextRange };
       if (!r.ok) toast(`Probe failed: ${r.err}`, 'err');
       else toast(r.found.length ? `${r.found.length} control${r.found.length === 1 ? '' : 's'} answered` : 'Nothing answered — see the diagnosis below', r.found.length ? 'ok' : 'warn', 5000);
+      renderModal();
+      break;
+    }
+    case 'tool-arp': {
+      const ip = ((cfg.audio || {}).ip || '').trim();
+      if (!ip) { toast('Set the BLU-100 IP first', 'warn'); break; }
+      ui.audioTools = { busy: true, html: (ui.audioTools || {}).html || '' }; renderModal();
+      const r = await api.netArpCheck({ ip });
+      let html;
+      if (!r.ok) html = `<p class="tres err">Check failed: ${esc(r.err)}</p>`;
+      else {
+        const nodes = ((cfg.audio || {}).probeNodes || '').split(',').map((x) => parseInt(x.trim())).filter((n) => !Number.isNaN(n));
+        const tails = nodes.map((n) => ((n >> 8) & 0xff).toString(16).padStart(2, '0') + '-' + (n & 0xff).toString(16).padStart(2, '0'));
+        const mac = r.mac || '';
+        const isBss = mac.startsWith('00-0f-d4');
+        const tailOk = tails.some((t) => mac.endsWith(t));
+        html = !r.alive && !mac ? `<p class="tres err">${esc(ip)} — no ping reply and no ARP entry: nothing is at that IP right now (cable? boot? wrong subnet?).</p>`
+          : !mac ? `<p class="tres err">${esc(ip)} pinged but left no ARP entry — odd; try again.</p>`
+          : isBss && tailOk ? `<p class="tres" style="color:var(--green)">MATCH: ${esc(ip)} answers with MAC ${esc(mac)} — that IS the BSS processor (node ${esc(mac.slice(-5))}). The network path is real; probe away.</p>`
+          : isBss ? `<p class="tres">${esc(ip)} is A BSS device (MAC ${esc(mac)}) but a different node than expected — note the last 4 hex digits: that's its node number.</p>`
+          : `<p class="tres err">CONFLICT FOUND: ${esc(ip)} is answered by MAC ${esc(mac)} — NOT a BSS box (BSS = 00-0f-d4-…). Something else owns this IP. Use NetSetter to move the BLU-100 to a free address.</p>`;
+      }
+      ui.audioTools = { busy: false, html }; renderModal();
+      break;
+    }
+    case 'tool-listen': {
+      ui.audioTools = { busy: true, html: '<p class="tres">Listening on udp/3804 for 25s — close Audio Architect/NetSetter for best results…</p>' }; renderModal();
+      const r = await api.audioListen({ seconds: 25 });
+      let html;
+      if (!r.ok) html = `<p class="tres err">${esc(r.err)}</p>`;
+      else if (!r.heard.length) html = `<p class="tres err">Heard nothing in ${r.seconds}s. Either no London box is announcing on this network segment, the firewall is eating inbound UDP (tap Fix firewall), or another app owns the port.</p>`;
+      else html = `<div class="row-grid row-head" style="grid-template-columns:0.7fr 1.2fr 0.9fr 0.9fr"><span>Node</span><span>MAC</span><span>Claims IP</span><span>Sent from</span></div>`
+        + r.heard.map((d) => `<div class="row-grid" style="grid-template-columns:0.7fr 1.2fr 0.9fr 0.9fr">
+            <span class="ip">${esc(d.node)}</span><span class="ip">${esc(d.mac)}</span>
+            <span class="ip">${esc(d.claimedIp)}</span>
+            <span class="ip" ${d.claimedIp !== d.fromIp ? 'style="color:#e05252"' : ''}>${esc(d.fromIp)}${d.claimedIp !== d.fromIp ? ' ⚠' : ''}</span>
+          </div>`).join('');
+      ui.audioTools = { busy: false, html }; renderModal();
+      break;
+    }
+    case 'tool-portscan': {
+      const ip = ((cfg.audio || {}).ip || '').trim();
+      if (!ip) { toast('Set the BLU-100 IP first', 'warn'); break; }
+      ui.audioTools = { busy: true, html: (ui.audioTools || {}).html || '' }; renderModal();
+      const r = await api.netPortScan({ ip });
+      const names = { 23: 'telnet (AMX?)', 80: 'http', 443: 'https', 1023: 'London DI', 1319: 'AMX ICSP', 3804: 'HiQnet', 8080: 'DirecTV SHEF' };
+      ui.audioTools = { busy: false, html: r.ok
+        ? `<p class="tres">${esc(ip)}: ${r.results.map((x) => `<b style="color:${x.open ? 'var(--green)' : 'var(--muted)'}">${x.port}${x.open ? '✓' : '✗'}</b> ${esc(names[x.port] || '')}`).join(' &nbsp; ')}</p>`
+        : `<p class="tres err">Scan failed: ${esc(r.err)}</p>` };
+      renderModal();
+      break;
+    }
+    case 'tool-decode': {
+      ui.diDecoded = decodeDiString((($('#diPaste') || {}).value || ''));
+      renderModal();
+      break;
+    }
+    case 'tool-decode-use': {
+      const d = ui.diDecoded;
+      const zoneId = ($('#decZone') || {}).value;
+      if (!d || d.err) break;
+      if (!zoneId) { toast('Add a speaker zone first (Speaker zones card above)', 'warn'); break; }
+      await saveCfg({ audio: { ...cfg.audio, zones: (cfg.audio.zones || []).map((z) => z.id === zoneId ? { ...z, addr: d.addr, gainParam: d.param === 1 ? 0 : d.param, muteParam: d.param === 1 ? 1 : (d.param + 1) } : z) } });
+      toast('Zone addressed from the pasted control — test the slider');
+      break;
+    }
+    case 'raw-read': case 'raw-dip': case 'raw-zero': case 'raw-bump-down': case 'raw-bump-up': {
+      const addr = (($('#rawAddr') || {}).value || '').trim();
+      const param = Number((($('#rawParam') || {}).value || '0'));
+      if (!addr) { toast('Enter an address first (node,vd,object)', 'warn'); break; }
+      const mode = act === 'raw-read' ? 'read' : act === 'raw-dip' ? 'set' : act === 'raw-zero' ? 'set' : 'bump';
+      const value = act === 'raw-dip' ? -60000 : act === 'raw-zero' ? 0 : act === 'raw-bump-down' ? -10 : act === 'raw-bump-up' ? 10 : 0;
+      const r = await api.audioRaw({ mode, addr, param, value });
+      ui.rawResult = !r.ok ? `Failed: ${r.err}`
+        : mode === 'read' ? (r.value === null ? 'No answer — object absent, or this path cannot read.' : `Value: ${r.value}${Math.abs(r.value) <= 300000 ? ` (≈${(r.value / 10000).toFixed(1)} dB)` : ''}`)
+        : `Sent ${act.replace('raw-', '')} to ${addr} p${param} — listen to the room.`;
       renderModal();
       break;
     }
@@ -1801,6 +1972,15 @@ document.addEventListener('click', async (e) => {
   }
 });
 
+// tool inputs live outside cfg — remember what's typed so re-renders keep it
+const KEEP_IDS = new Set(['rawAddr', 'rawParam', 'diPaste', 'amxIp']);
+document.addEventListener('input', (e) => {
+  if (e.target && KEEP_IDS.has(e.target.id)) {
+    ui.keep = ui.keep || {};
+    ui.keep[e.target.id] = e.target.value;
+  }
+});
+
 document.addEventListener('change', async (e) => {
   const el = e.target.closest('[data-bind]');
   if (!el) return;
@@ -1873,6 +2053,10 @@ document.addEventListener('change', async (e) => {
     await saveCfg({ audio: { ...cfg.audio, enabled: el.checked } });
   } else if (bind === 'audio-ip') {
     await saveCfg({ audio: { ...cfg.audio, ip: el.value.trim() } });
+  } else if (bind === 'audio-protocol') {
+    await saveCfg({ audio: { ...cfg.audio, protocol: el.value } });
+  } else if (bind === 'audio-com') {
+    await saveCfg({ audio: { ...cfg.audio, comPort: el.value.trim().toUpperCase() } });
   } else if (bind === 'az-name' || bind === 'az-addr' || bind === 'az-gain' || bind === 'az-mute') {
     const zones = (cfg.audio.zones || []).map((z) => {
       if (z.id !== el.dataset.id) return z;
@@ -2058,6 +2242,13 @@ setInterval(() => {
 
   api.onStatus((m) => { statuses = m; if (!ui.settings) { renderHeader(); renderGrid(); updatePreviewChip(); updatePickerCurrent(); } if (ui.sleeping) renderSleepBits(); });
   api.onConfig((c) => { cfg = c; renderAll(); });
+  if (api.onAmxData) api.onAmxData((t) => {
+    if (!ui.amx) ui.amx = { open: true, buf: [] };
+    ui.amx.buf.push(t);
+    if (ui.amx.buf.length > 400) ui.amx.buf.splice(0, ui.amx.buf.length - 400);
+    const out = document.querySelector('#amxOut');
+    if (out) { out.textContent += t; out.scrollTop = out.scrollHeight; }
+  });
   api.onScanProgress((p) => {
     ui.scan.progress = p;
     const el = document.querySelector('#scanStatus');
@@ -2147,4 +2338,41 @@ function probeDiagText(ap) {
   if (d.acks > 0) return `The processor ACCEPTED all ${d.acks} queries but none of these object numbers exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
   if (d.bytes > 0) return `The port sent ${d.bytes} bytes of non-DI traffic back (starts: ${d.rawHex}). Something other than Soundweb control is on :1023 - report this.`;
   return 'The port accepted the connection but sent NOTHING back - network DI is disabled in this firmware. Use the HiQnet :3804 button instead - that is the protocol the AMX itself uses.';
+}
+
+// Decode a London DI byte string pasted from London Architect's toolbar.
+// Accepts hex ("02 88 75 B0 03 ...", "0x02,0x88...") or decimal ("2,136,...").
+function decodeDiString(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return { err: 'Paste a byte string first.' };
+  const tokens = raw.split(/[^0-9a-fA-Fx]+/).filter(Boolean);
+  if (!tokens.length) return { err: 'No bytes found in that text.' };
+  const looksHex = tokens.some((t) => /^0x/i.test(t) || /[a-fA-F]/.test(t)) || tokens.every((t) => t.length === 2);
+  let bytes = tokens.map((t) => parseInt(t, looksHex ? 16 : 10));
+  if (bytes.some((b) => Number.isNaN(b) || b < 0 || b > 255)) return { err: 'Could not read those bytes - mixed formats? Try plain hex pairs like 02 88 75 B0 03 00 01 5A ...' };
+  // strip STX, unescape 0x1B pairs, stop at ETX
+  if (bytes[0] === 0x02) bytes = bytes.slice(1);
+  const body = [];
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    // 0x03 is ETX — but it's also the audio virtual-device byte, so only
+    // treat it as the terminator once a full message has been collected
+    if (b === 0x03 && (body.length >= 13 || i === bytes.length - 1)) break;
+    if (b === 0x1b && i + 1 < bytes.length) { body.push((bytes[i + 1] - 0x80) & 0xff); i++; continue; }
+    body.push(b);
+  }
+  if (body.length < 13) return { err: `Only ${body.length} payload bytes - a full DI message needs 13+ (type, node2, vd, object3, param2, value4).` };
+  const type = body[0];
+  const typeNames = { 0x88: 'SET_VALUE', 0x89: 'SUBSCRIBE', 0x8a: 'UNSUBSCRIBE', 0x8d: 'SET_PERCENT', 0x8e: 'SUBSCRIBE_PERCENT', 0x90: 'BUMP_PERCENT' };
+  if (!typeNames[type]) return { err: `First byte 0x${type.toString(16)} is not a DI message type - paste starting at the 02 or the 88.` };
+  const node = (body[1] << 8) | body[2];
+  const vd = body[3];
+  const obj = (body[4] << 16) | (body[5] << 8) | body[6];
+  const param = (body[7] << 8) | body[8];
+  const value = (body[9] << 24) | (body[10] << 16) | (body[11] << 8) | body[12];
+  const addr = `0x${node.toString(16).toUpperCase()},0x${vd.toString(16)},0x${obj.toString(16).toUpperCase()}`;
+  let valueNote = `${typeNames[type]}`;
+  if (type === 0x88 && Math.abs(value) <= 300000) valueNote += ` ${(value / 10000).toFixed(1)} dB`;
+  else if (type === 0x8d) valueNote += ` ${(value / 65536).toFixed(0)}%`;
+  return { addr, param, value, valueNote };
 }

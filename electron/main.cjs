@@ -12,8 +12,14 @@ const serial = require('./serial.cjs');
 const itach = require('./itach.cjs');
 const bss = require('./bss.cjs');
 const hq = require('./hiqnet.cjs');
-// audio driver: legacy DI (:1023) or native HiQnet (:3804), per config
-const audioDrv = (cfg) => ((cfg.audio || {}).protocol === 'hiqnet' ? hq : bss);
+const bser = require('./bss-serial.cjs');
+// audio driver: DI over TCP :1023, native HiQnet :3804, or DI over RS-232.
+// In serial mode the "ip" argument carries the COM port name instead.
+const audioDrv = (cfg) => {
+  const p = (cfg.audio || {}).protocol;
+  return p === 'hiqnet' ? hq : p === 'serial' ? bser : bss;
+};
+const audioTarget = (cfg) => ((cfg.audio || {}).protocol === 'serial' ? (cfg.audio.comPort || '') : (cfg.audio || {}).ip);
 
 const argOf = (k) => {
   const a = process.argv.find((x) => x.startsWith(`--${k}=`));
@@ -294,9 +300,9 @@ const audioZone = (id) => ((store.load().audio || {}).zones || []).find((z) => z
 ipcMain.handle('audio:set', async (_e, { zoneId, pct }) => {
   const cfg = store.load();
   const z = audioZone(zoneId);
-  if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
+  if (!cfg.audio || !audioTarget(cfg) || !z || !z.addr) return { ok: false, err: 'not configured' };
   try {
-    await audioDrv(cfg).setPercent(cfg.audio.ip, z.addr, z.gainParam ?? 0, pct);
+    await audioDrv(cfg).setPercent(audioTarget(cfg), z.addr, z.gainParam ?? 0, pct);
     return { ok: true };
   } catch (e) {
     log('warn', 'audio', `Volume set failed for ${z.name}: ${e.message}`);
@@ -307,9 +313,9 @@ ipcMain.handle('audio:set', async (_e, { zoneId, pct }) => {
 ipcMain.handle('audio:mute', async (_e, { zoneId, muted }) => {
   const cfg = store.load();
   const z = audioZone(zoneId);
-  if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
+  if (!cfg.audio || !audioTarget(cfg) || !z || !z.addr) return { ok: false, err: 'not configured' };
   try {
-    await audioDrv(cfg).setValue(cfg.audio.ip, z.addr, z.muteParam ?? 1, muted ? 1 : 0);
+    await audioDrv(cfg).setValue(audioTarget(cfg), z.addr, z.muteParam ?? 1, muted ? 1 : 0);
     log('info', 'audio', `${z.name} ${muted ? 'muted' : 'unmuted'}`);
     return { ok: true };
   } catch (e) {
@@ -320,10 +326,11 @@ ipcMain.handle('audio:mute', async (_e, { zoneId, muted }) => {
 
 ipcMain.handle('audio:probe', async (_e, { nodes, objFrom, objTo }) => {
   const cfg = store.load();
-  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'set the processor IP first' };
+  if (!cfg.audio || !audioTarget(cfg)) return { ok: false, err: 'set the processor IP / COM port first' };
   try {
     log('info', 'audio', `Probe started: nodes ${nodes.map((n) => '0x' + n.toString(16).toUpperCase()).join(', ')}, objects 0x${objFrom.toString(16)}–0x${objTo.toString(16)} (read-only)`);
-    const { found, diag } = await bss.probe(cfg.audio.ip, nodes, objFrom, objTo, [0, 1], (p) => broadcast('audioprobe', p));
+    const serialMode = (cfg.audio || {}).protocol === 'serial';
+    const { found, diag } = await (serialMode ? bser : bss).probe(audioTarget(cfg), nodes, objFrom, objTo, [0, 1], (p) => broadcast('audioprobe', p));
     const verdict = found.length ? `${found.length} responding control${found.length === 1 ? '' : 's'}`
       : diag.naks > 0 ? `0 controls — device NAK'd ${diag.naks} queries (protocol mismatch)`
       : diag.acks > 0 ? `0 controls — device ACK'd ${diag.acks} queries; these object numbers just don't exist`
@@ -373,16 +380,141 @@ ipcMain.handle('audio:fixfw', async () => {
   } catch (e) { return { ok: false, err: String(e.message || e) }; }
 });
 
+// Identity check: ping the IP, then read the ARP table for the MAC that
+// actually answered. BSS London MACs are 00-0F-D4-xx-xx-xx with the HiQnet
+// node as the last two bytes — a mismatched MAC = IP conflict found.
+ipcMain.handle('net:arpcheck', async (_e, { ip }) => {
+  const { execFile } = require('child_process');
+  const run = (cmd, args) => new Promise((res) => execFile(cmd, args, { windowsHide: true, timeout: 8000 }, (err, stdout) => res(String(stdout || ''))));
+  try {
+    const ping = await run('ping.exe', ['-n', '1', '-w', '1500', ip]);
+    const alive = /TTL=/i.test(ping);
+    const arp = await run('arp.exe', ['-a']);
+    let mac = null;
+    for (const line of arp.split(/\r?\n/)) {
+      const m = line.match(/^\s*([\d.]+)\s+([0-9a-f-]{17})/i);
+      if (m && m[1] === ip) { mac = m[2].toLowerCase(); break; }
+    }
+    log('info', 'net', `Identity check ${ip}: ${alive ? 'ping OK' : 'no ping reply'}, MAC ${mac || 'not in ARP table'}`);
+    return { ok: true, alive, mac };
+  } catch (e) { return { ok: false, err: String(e.message || e) }; }
+});
+
+// Quick TCP port scan of one host — which services actually answer there
+ipcMain.handle('net:portscan', async (_e, { ip }) => {
+  const ports = [23, 80, 443, 1023, 1319, 3804, 8080];
+  const one = (port) => new Promise((res) => {
+    const s = net.createConnection({ host: ip, port, timeout: 1500 });
+    s.on('connect', () => { s.destroy(); res({ port, open: true }); });
+    s.on('timeout', () => { s.destroy(); res({ port, open: false }); });
+    s.on('error', () => res({ port, open: false }));
+  });
+  const results = await Promise.all(ports.map(one));
+  log('info', 'net', `Port scan ${ip}: open ${results.filter((r) => r.open).map((r) => r.port).join(', ') || 'none'}`);
+  return { ok: true, results };
+});
+
+// Passive HiQnet census: listen on udp/3804 and collect the DiscoInfo
+// announcements London devices broadcast. Sends nothing. Each hit reveals the
+// device's node, MAC, the IP it BELIEVES it has, and the IP it actually sent
+// from — a mismatch between those two is an addressing problem made visible.
+ipcMain.handle('audio:listen', async (_e, { seconds }) => {
+  const dgram = require('dgram');
+  const secs = Math.max(5, Math.min(120, seconds || 25));
+  try { hq.reset(); } catch { /* noop */ } // free udp/3804 from any prior HiQnet session
+  return new Promise((resolve) => {
+    const heard = new Map();
+    let u;
+    try { u = dgram.createSocket({ type: 'udp4', reuseAddr: true }); } catch (e) { return resolve({ ok: false, err: String(e.message || e) }); }
+    u.on('error', (e) => { try { u.close(); } catch { /* noop */ } resolve({ ok: false, err: `udp/3804: ${e.message} — close Audio Architect/NetSetter` }); });
+    u.on('message', (m, rinfo) => {
+      try {
+        if (m[0] !== 0x02 || m.length < 25) return;
+        if (m.readUInt16BE(18) !== 0x0000) return; // DiscoInfo only
+        const p = m.slice(m[1]);
+        const node = p.readUInt16BE(0);
+        const serLen = p.readUInt16BE(3);
+        let off = 3 + 2 + serLen + 4 + 2 + 1; // cost, serial block, maxmsg, keepalive, netid
+        const mac = [...p.slice(off, off + 6)].map((b) => b.toString(16).padStart(2, '0')).join('-');
+        off += 6 + 1; // mac, dhcp
+        const claimedIp = [...p.slice(off, off + 4)].join('.');
+        heard.set(`${node}/${rinfo.address}`, { node: '0x' + node.toString(16).toUpperCase(), mac, claimedIp, fromIp: rinfo.address });
+      } catch { /* malformed — ignore */ }
+    });
+    u.bind(3804, () => log('info', 'audio', `Listening for HiQnet announcements on udp/3804 for ${secs}s (passive)…`));
+    setTimeout(() => {
+      try { u.close(); } catch { /* noop */ }
+      const list = [...heard.values()];
+      log('info', 'audio', `Listen done: heard ${list.length} device${list.length === 1 ? '' : 's'}${list.length ? ' — ' + list.map((d) => `${d.node}@${d.fromIp}`).join(', ') : ''}`);
+      resolve({ ok: true, heard: list, seconds: secs });
+    }, secs * 1000);
+  });
+});
+
+// Manual tester: read/set/bump one arbitrary address over the active protocol
+ipcMain.handle('audio:raw', async (_e, { mode, addr, param, value }) => {
+  const cfg = store.load();
+  const drv = audioDrv(cfg);
+  const tgt = audioTarget(cfg);
+  if (!tgt) return { ok: false, err: 'set the processor IP / COM port first' };
+  try {
+    const p = Number(param) || 0;
+    if (mode === 'read') {
+      const v = await drv.readValue(tgt, addr, p);
+      log('info', 'audio', `Manual read ${addr} p${p}: ${v === null ? 'no answer' : v + (Math.abs(v) <= 300000 ? ` (≈${(v / 10000).toFixed(1)} dB)` : '')}`);
+      return { ok: true, value: v };
+    }
+    if (mode === 'set') { await drv.setValue(tgt, addr, p, Number(value) | 0); log('info', 'audio', `Manual set ${addr} p${p} = ${value}`); return { ok: true }; }
+    if (mode === 'setpct') { await drv.setPercent(tgt, addr, p, Number(value) || 0); log('info', 'audio', `Manual set% ${addr} p${p} = ${value}%`); return { ok: true }; }
+    if (mode === 'bump' && drv.bump) { await drv.bump(tgt, addr, p, Number(value) || 0); log('info', 'audio', `Manual bump ${addr} p${p} ${value > 0 ? '+' : ''}${value}%`); return { ok: true }; }
+    return { ok: false, err: mode === 'bump' ? 'bump is DI-only (not HiQnet)' : 'unknown mode' };
+  } catch (e) { return { ok: false, err: String(e.message || e) }; }
+});
+
+// ---------- AMX NetLinx console (telnet :23) ----------
+let amxSock = null;
+ipcMain.handle('amx:open', async (_e, { ip, port }) => {
+  try { if (amxSock) { amxSock.destroy(); amxSock = null; } } catch { /* noop */ }
+  return new Promise((resolve) => {
+    const s = net.createConnection({ host: ip, port: port || 23, timeout: 5000 });
+    s.on('connect', () => { s.setTimeout(0); amxSock = s; log('info', 'amx', `Console connected to ${ip}:${port || 23}`); resolve({ ok: true }); });
+    s.on('timeout', () => { s.destroy(); resolve({ ok: false, err: 'timeout' }); });
+    s.on('error', (e) => { if (amxSock === s) amxSock = null; resolve({ ok: false, err: String(e.message || e) }); });
+    s.on('close', () => { if (amxSock === s) { amxSock = null; broadcast('amxdata', '\n[connection closed]\n'); } });
+    s.on('data', (chunk) => {
+      // strip/answer telnet IAC negotiations, pass printable text through
+      const out = [];
+      for (let i = 0; i < chunk.length; i++) {
+        if (chunk[i] === 0xff) {
+          if (i + 2 >= chunk.length) break; // incomplete IAC at chunk end — drop the tail
+          const cmd = chunk[i + 1], opt = chunk[i + 2];
+          if (cmd === 0xfd) { try { s.write(Buffer.from([0xff, 0xfc, opt])); } catch { /* noop */ } } // DO -> WONT
+          else if (cmd === 0xfb) { try { s.write(Buffer.from([0xff, 0xfe, opt])); } catch { /* noop */ } } // WILL -> DONT
+          i += 2;
+          continue;
+        }
+        out.push(chunk[i]);
+      }
+      if (out.length) broadcast('amxdata', Buffer.from(out).toString('latin1'));
+    });
+  });
+});
+ipcMain.handle('amx:send', async (_e, { text }) => {
+  if (!amxSock) return { ok: false, err: 'not connected' };
+  try { amxSock.write(String(text) + '\r\n'); return { ok: true }; } catch (e) { return { ok: false, err: String(e.message || e) }; }
+});
+ipcMain.handle('amx:close', async () => { try { if (amxSock) amxSock.destroy(); } catch { /* noop */ } amxSock = null; return { ok: true }; });
+
 // Dip: read → set −6 dB → verify mid-dip → restore exact value.
 // Distinguishes "not audible / wrong fader" from "device ignores writes".
 ipcMain.handle('audio:dip', async (_e, { addr }) => {
   const cfg = store.load();
-  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
+  if (!cfg.audio || !audioTarget(cfg)) return { ok: false, err: 'not configured' };
   try {
     const drv = audioDrv(cfg);
-    const ip = cfg.audio.ip;
+    const ip = audioTarget(cfg);
     const v0 = await drv.readValue(ip, addr, 0);
-    if (v0 === null) return { ok: false, err: 'object did not answer a read' };
+    if (v0 === null) return { ok: false, err: (cfg.audio || {}).protocol === 'serial' ? 'serial is write-only — use the Manual tester (Set −6 dB / Bump) and listen' : 'object did not answer a read' };
     await drv.setValue(ip, addr, 0, v0 - 60000);
     await drv.sleep(600);
     const mid = await drv.readValue(ip, addr, 0);
@@ -397,10 +529,10 @@ ipcMain.handle('audio:dip', async (_e, { addr }) => {
 // Mute blink: different message path than the fader — flips param 1 for 1.5s.
 ipcMain.handle('audio:blink', async (_e, { addr }) => {
   const cfg = store.load();
-  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
+  if (!cfg.audio || !audioTarget(cfg)) return { ok: false, err: 'not configured' };
   try {
     const drv = audioDrv(cfg);
-    const ip = cfg.audio.ip;
+    const ip = audioTarget(cfg);
     const m0 = await drv.readValue(ip, addr, 1);
     const target = m0 === 1 ? 0 : 1;
     await drv.setValue(ip, addr, 1, target);

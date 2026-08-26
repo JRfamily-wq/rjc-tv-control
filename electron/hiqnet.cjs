@@ -331,4 +331,15 @@ async function probe(ip, nodes, objFrom, objTo, svIds, onProgress) {
   return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev, transport: c.transport || 'none', udpStatus: c.udpStatus || 'untried' } };
 }
 
-module.exports = { probe, readValue, setValue, setPercent, getParams, sleep };
+// tear down every connection (TCP + UDP) — e.g. so the passive listener can
+// own udp/3804 alone; next command reconnects on demand
+function reset() {
+  for (const c of conns.values()) {
+    try { if (c.ka) clearInterval(c.ka); } catch { /* noop */ }
+    try { if (c.udp) c.udp.close(); } catch { /* noop */ }
+    try { if (c.sock) c.sock.destroy(); } catch { /* noop */ }
+  }
+  conns.clear();
+}
+
+module.exports = { probe, readValue, setValue, setPercent, getParams, sleep, reset };

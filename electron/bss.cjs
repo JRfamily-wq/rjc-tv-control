@@ -191,4 +191,4 @@ async function readValue(ip, addrStr, paramId, timeoutMs = 900) {
   return result;
 }
 
-module.exports = { setPercent, setValue, bump, probe, readValue, sleep };
+module.exports = { setPercent, setValue, bump, probe, readValue, sleep, frameBytes, parseAddr, MSG };

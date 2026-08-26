@@ -90,7 +90,8 @@ function defaults() {
     audio: {
       enabled: false,
       ip: '',
-      protocol: 'di', // 'di' (:1023) or 'hiqnet' (:3804)
+      protocol: 'di', // 'di' (:1023), 'hiqnet' (:3804), or 'serial' (RS-232 DI)
+      comPort: '',
       probeNodes: '0xC642, 0x75B0',
       zones: [
         { id: 'az1', name: 'Track speakers', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false },
