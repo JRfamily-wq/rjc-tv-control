@@ -1474,8 +1474,6 @@ document.addEventListener('click', async (e) => {
       if (feed) gatedTune(() => openPicker([feed.id], feed.name));
       break;
     }
-    case 'power-all-on': doPowerTvs(cfg.tvs.map((t) => t.id), true); break;
-    case 'power-all-off': doPowerTvs(cfg.tvs.map((t) => t.id), false); break;
     case 'fullscreen': {
       const fs = await api.isFullscreen();
       if (fs && cfg.settingsCode) { ui.codeGate = { for: 'fullscreen', entered: '', shake: false }; renderModal(); }
