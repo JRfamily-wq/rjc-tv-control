@@ -2032,7 +2032,8 @@ function probeDiagText(ap) {
   if (ap.via === 'hiqnet') {
     if (d.errors > 0) return `The processor heard every query and answered ${d.errors} explicit errors - these object numbers don't exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
     if (d.info > 0 || d.bytes > 0) return `The processor replied (${d.bytes} bytes, first: ${d.rawHex}) but nothing parsed as live values. Photograph the Diagnostics log and report this.`;
-    return 'Port 3804 sent nothing back either. Photograph the Diagnostics log and report this.';
+    if (d.deviceDev != null) return `The device (0x${d.deviceDev.toString(16).toUpperCase()}) answered the login handshake but ignored the queries. Photograph the Diagnostics log and report this.`;
+    return 'Port 3804 never answered - not even the DiscoInfo login. Photograph the Diagnostics log and report this.';
   }
   if (d.naks > 0) return `The processor REJECTED ${d.naks} of our queries (NAK) - it speaks a different protocol dialect. Stop probing and report this.`;
   if (d.acks > 0) return `The processor ACCEPTED all ${d.acks} queries but none of these object numbers exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;

@@ -6,6 +6,7 @@
 // Every request gets an explicit reply — INFO (with typed values) or ERROR —
 // so probes are decisive, unlike DI's silence.
 const net = require('net');
+const os = require('os');
 
 const MSG = {
   DISCO: 0x0000, HELLO: 0x0008,
@@ -138,21 +139,65 @@ function waitFor(c, pred, timeoutMs) {
   });
 }
 
-// Session handshake: some firmware requires a session number on every message.
-// Try Hello; on INFO reply adopt the session, on error/silence stay sessionless.
+// Our TCP/IP network info for DiscoInfo — the routing layer needs real values
+function nicInfo() {
+  const ifs = os.networkInterfaces();
+  for (const name of Object.keys(ifs)) {
+    for (const a of ifs[name] || []) {
+      if (a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.')) {
+        return {
+          mac: (a.mac || '').split(':').map((x) => parseInt(x, 16) || 0).concat([0, 0, 0, 0, 0, 0]).slice(0, 6),
+          ip: a.address.split('.').map(Number),
+          mask: (a.netmask || '255.255.255.0').split('.').map(Number),
+        };
+      }
+    }
+  }
+  return { mac: [0, 0, 0, 0, 0, 0], ip: [0, 0, 0, 0], mask: [255, 255, 255, 0] };
+}
+
+// DiscoInfo payload: device, cost, serial (BLOCK 16), maxMsgSize, keepAlive ms,
+// networkID(1=TCP/IP), then MAC + DHCP + IP + subnet + gateway
+function discoPayload() {
+  const n = nicInfo();
+  const b = Buffer.alloc(2 + 1 + 2 + 16 + 4 + 2 + 1 + 6 + 1 + 4 + 4 + 4);
+  let o = 0;
+  b.writeUInt16BE(OUR_DEV, o); o += 2;
+  b[o++] = 1; // cost
+  b.writeUInt16BE(16, o); o += 2;
+  Buffer.from('RJC-TV-CONTROL\0\0', 'latin1').copy(b, o); o += 16;
+  b.writeUInt32BE(0xffff, o); o += 4; // max message size
+  b.writeUInt16BE(10000, o); o += 2;  // keep-alive period ms
+  b[o++] = 1; // network id: TCP/IP
+  for (const x of n.mac) b[o++] = x & 0xff;
+  b[o++] = 1; // DHCP
+  for (const x of n.ip) b[o++] = x & 0xff;
+  for (const x of n.mask) b[o++] = x & 0xff;
+  o += 4; // gateway 0.0.0.0
+  return b;
+}
+
+// Login liturgy per HARMAN's third-party guide: (1) DiscoInfo query broadcast —
+// introduces us so the routing layer has a way back (without this the device
+// silently drops everything), (2) Hello session handshake — adopt the device's
+// session number for our header extensions, (3) DiscoInfo(Info) keep-alives.
 async function ensureSession(ip, node) {
   const c = await getConn(ip);
   if (c.helloTried) return c;
   c.helloTried = true;
-  const sess = 1 + Math.floor(0xfff0 * ((Date.now() % 10000) / 10000));
-  const pay = Buffer.alloc(4);
-  pay.writeUInt16BE(sess, 0); pay.writeUInt16BE(FLAG.SESSION | FLAG.REQACK, 2);
   try {
+    await sendMsg(ip, 0xffff, 0, 0, MSG.DISCO, 0, discoPayload());
+    const disco = await waitFor(c, (m) => m.msgId === MSG.DISCO, 1500);
+    if (disco) c.deviceDev = disco.srcDev;
+    const sess = 1 + Math.floor(0xfff0 * ((Date.now() % 10000) / 10000));
+    const pay = Buffer.alloc(4);
+    pay.writeUInt16BE(sess, 0); pay.writeUInt16BE(FLAG.SESSION, 2);
     await sendMsg(ip, node, 0, 0, MSG.HELLO, 0, pay);
     const rep = await waitFor(c, (m) => m.msgId === MSG.HELLO, 1200);
     if (rep && (rep.flags & FLAG.INFO) && rep.payload.length >= 2) c.session = rep.payload.readUInt16BE(0);
-    else if (rep && !(rep.flags & FLAG.ERROR)) c.session = sess;
-  } catch { /* stay sessionless */ }
+    c.ka = setInterval(() => { sendMsg(ip, 0xffff, 0, 0, MSG.DISCO, FLAG.INFO, discoPayload()).catch(() => { /* noop */ }); }, 5000);
+    c.sock.on('close', () => clearInterval(c.ka));
+  } catch { /* proceed best-effort */ }
   return c;
 }
 
@@ -233,7 +278,7 @@ async function probe(ip, nodes, objFrom, objTo, svIds, onProgress) {
   }
   const rawHex = c.stats.raw.map((b) => b.toString(16).padStart(2, '0')).join(' ');
   for (const f of found.values()) dtCache.set(`${ip}/${f.node}/${f.vd}/${f.obj}/${f.param}`, f.dt);
-  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session } };
+  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev } };
 }
 
 module.exports = { probe, readValue, setValue, setPercent, getParams, sleep };

@@ -349,7 +349,8 @@ ipcMain.handle('audio:hqprobe', async (_e, { nodes, objFrom, objTo }) => {
       : diag.errors > 0 ? `0 controls — device answered ${diag.errors} explicit errors (heard us; objects not here)`
       : diag.info > 0 ? `0 controls — ${diag.info} info replies but none parseable (first bytes: ${diag.rawHex})`
       : diag.bytes > 0 ? `0 controls — unrecognized traffic (first bytes: ${diag.rawHex})`
-      : `0 controls — :3804 silent too`;
+      : diag.deviceDev != null ? `0 controls — device 0x${diag.deviceDev.toString(16).toUpperCase()} answered the login but ignored the queries`
+      : `0 controls — :3804 silent (no DiscoInfo login reply either)`;
     log('info', 'audio', `HiQnet probe done: ${verdict}`);
     return { ok: true, found, diag, via: 'hiqnet' };
   } catch (e) {
