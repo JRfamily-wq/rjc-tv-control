@@ -145,6 +145,13 @@ ipcMain.handle('tv:tune', async (_e, { boxIds, chan }) => {
   }));
   broadcast('status', statuses);
   pollSoon(ok, 1500);
+  // Remember what was set from the panel — tiles display this even when a box
+  // refuses channel readback (the persisted placeholder).
+  if (ok.length) {
+    const cfg = store.load();
+    store.update({ boxes: cfg.boxes.map((b) => ok.includes(b.id) ? { ...b, lastChan: chan } : b) });
+    broadcast('config', store.load());
+  }
   const names = (ids) => ids.map((i) => (boxById(i) || {}).name || i).join(', ');
   log(fail.length ? 'warn' : 'info', 'tune',
     `Tune ${chan} (${shef.callsignFor(chan)}) → ${names(ok) || 'none'}${fail.length ? `; FAILED: ${fail.map((f) => `${(boxById(f.id) || {}).name || f.id} (${f.err})`).join(', ')}` : ''}`);

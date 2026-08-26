@@ -135,6 +135,32 @@ function shownTvs() {
   return cfg.tvs.filter((t) => t.zone === ui.filter);
 }
 
+/* ---------- feed-group model: tiles are feeds, TVs are their audience ---------- */
+const feedTvs = (feedId) => cfg.tvs.filter((t) => t.boxId === feedId);
+
+function feedZone(feed) {
+  const counts = {};
+  for (const t of feedTvs(feed.id)) if (t.zone && zoneOf(t.zone)) counts[t.zone] = (counts[t.zone] || 0) + 1;
+  let best = null, n = 0;
+  for (const [z, c] of Object.entries(counts)) if (c > n) { best = z; n = c; }
+  return best;
+}
+
+function shownFeeds() {
+  if (ui.filter === 'all') return cfg.boxes;
+  if (ui.filter === 'none') return cfg.boxes.filter((b) => !feedZone(b));
+  return cfg.boxes.filter((b) => feedZone(b) === ui.filter);
+}
+
+// What a tile displays: live readback when the box reports it,
+// otherwise the channel last set from this panel (the remembered placeholder).
+function effChanOf(feed) {
+  const st = statuses[feed.id];
+  if (st && st.online && st.mode === 0 && st.chan) return { chan: String(st.chan), live: true, st };
+  if (feed.lastChan) return { chan: String(feed.lastChan), live: false, st };
+  return { chan: null, live: false, st };
+}
+
 function toast(msg, kind = 'ok', ms = 2800) {
   const host = $('#toastHost');
   const el = document.createElement('div');
@@ -145,46 +171,34 @@ function toast(msg, kind = 'ok', ms = 2800) {
 }
 
 /* ---------- actions ---------- */
-function boxIdsForTvs(tvIds) {
-  const set = new Set();
-  for (const id of tvIds) {
-    const tv = cfg.tvs.find((t) => t.id === id);
-    if (tv && tv.boxId) set.add(tv.boxId);
-  }
-  return [...set];
-}
-
-async function doTune(tvIds, chan, label) {
-  const boxIds = boxIdsForTvs(tvIds);
-  if (!boxIds.length) { toast('No feed assigned to that TV yet — see Settings', 'warn'); return; }
-  const affected = cfg.tvs.filter((t) => boxIds.includes(t.boxId)).length;
+async function doTuneFeeds(feedIds, chan, label) {
+  const affected = feedIds.reduce((s, id) => s + feedTvs(id).length, 0);
   const name = favName(chan) || `channel ${chan}`;
-  const r = await api.tune({ boxIds, chan });
+  const r = await api.tune({ boxIds: feedIds, chan });
+  const what = affected ? `${affected} TV${affected === 1 ? '' : 's'}` : `${feedIds.length} group${feedIds.length === 1 ? '' : 's'}`;
   if (r.fail.length === 0) {
-    toast(`${label || (affected + ' TV' + (affected === 1 ? '' : 's'))} → ${name} (${chan})`);
+    toast(`${label || what} → ${name} (${chan})`);
   } else if (r.ok.length === 0) {
     toast(`Couldn't reach ${r.fail.length} feed${r.fail.length === 1 ? '' : 's'}`, 'err');
   } else {
-    toast(`${r.ok.length} feed${r.ok.length === 1 ? '' : 's'} tuned to ${name}; ${r.fail.length} didn't respond`, 'warn');
+    toast(`${r.ok.length} tuned to ${name}; ${r.fail.length} didn't respond`, 'warn');
   }
 }
 
-async function doPowerTvs(tvIds, on) {
-  // Feeds get SHEF standby/wake; paired Vizio panels get real power too.
-  const boxIds = boxIdsForTvs(tvIds);
-  const affected = cfg.tvs.filter((t) => boxIds.includes(t.boxId)).length;
-  let feedMsg = '', anyFail = false;
-  if (boxIds.length) {
-    const r = await api.power({ boxIds, on });
-    if (r.fail.length === 0) feedMsg = `${on ? 'Waking' : 'Standby sent to'} ${affected} TV${affected === 1 ? '' : 's'}`;
-    else { anyFail = true; feedMsg = `${on ? 'Waking' : 'Standby:'} ${r.ok.length} feed${r.ok.length === 1 ? '' : 's'}, ${r.fail.length} didn't respond`; }
-  }
-  const vz = await api.vizioPower({ tvIds, on });
+async function doPowerFeeds(feedIds, on) {
+  // Feeds get SHEF standby/wake; those groups' paired Vizio panels get real power too.
+  const tvIds = feedIds.flatMap((id) => feedTvs(id)).map((t) => t.id);
+  const affected = tvIds.length || feedIds.length;
+  let anyFail = false;
+  const r = await api.power({ boxIds: feedIds, on });
+  let feedMsg;
+  if (r.fail.length === 0) feedMsg = `${on ? 'Waking' : 'Standby sent to'} ${affected} TV${affected === 1 ? '' : 's'}`;
+  else { anyFail = true; feedMsg = `${on ? 'Waking' : 'Standby:'} ${r.ok.length} feed${r.ok.length === 1 ? '' : 's'}, ${r.fail.length} didn't respond`; }
+  const vz = tvIds.length ? await api.vizioPower({ tvIds, on }) : { ok: [], fail: [] };
   if (vz.fail.length) anyFail = true;
   const bits = [feedMsg,
     vz.ok.length ? `${vz.ok.length} panel${vz.ok.length === 1 ? '' : 's'} ${on ? 'on' : 'off'}` : '',
     vz.fail.length ? `${vz.fail.length} panel${vz.fail.length === 1 ? '' : 's'} unreachable` : ''].filter(Boolean);
-  if (!bits.length) { toast('No feed assigned to that TV yet — see Settings', 'warn'); return; }
   toast(bits.join(' · '), anyFail ? 'warn' : 'ok');
 }
 
@@ -205,19 +219,17 @@ function openPicker(tvIds, label) {
 }
 
 function applyPreset(preset) {
-  const jobs = new Map(); // chan -> Set(boxIds), first assignment per feed wins
-  const claimed = new Set();
-  for (const tv of cfg.tvs) {
-    const chan = preset.assignments[tv.zone];
-    if (!chan || !tv.boxId || claimed.has(tv.boxId)) continue;
-    claimed.add(tv.boxId);
+  const jobs = new Map(); // chan -> feedIds
+  for (const f of cfg.boxes) {
+    const chan = preset.assignments[feedZone(f)];
+    if (!chan) continue;
     if (!jobs.has(chan)) jobs.set(chan, []);
-    jobs.get(chan).push(tv.boxId);
+    jobs.get(chan).push(f.id);
   }
   let tvCount = 0;
-  for (const [chan, boxIds] of jobs) {
-    tvCount += cfg.tvs.filter((t) => boxIds.includes(t.boxId)).length;
-    api.tune({ boxIds, chan });
+  for (const [chan, feedIds] of jobs) {
+    tvCount += feedIds.reduce((s, id) => s + feedTvs(id).length, 0);
+    api.tune({ boxIds: feedIds, chan });
   }
   api.logAdd({ level: 'info', source: 'scene', message: `Scene "${preset.name}" applied — ${tvCount} TVs` });
   toast(`${preset.name} applied — ${tvCount} TVs`);
@@ -285,13 +297,12 @@ function renderScenes() {
 /* ---------- render: header ---------- */
 function renderMix() {
   const bar = $('#mixbar');
-  const scope = shownTvs();
-  const counts = new Map(); // chan -> tv count (live only)
-  for (const t of scope) {
-    const st = t.boxId ? statuses[t.boxId] : null;
-    if (st && st.online && st.mode === 0 && st.chan) {
-      counts.set(String(st.chan), (counts.get(String(st.chan)) || 0) + 1);
-    }
+  const counts = new Map(); // chan -> tv-weighted count
+  for (const f of shownFeeds()) {
+    const eff = effChanOf(f);
+    if (!eff.chan) continue;
+    if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
+    counts.set(eff.chan, (counts.get(eff.chan) || 0) + Math.max(1, feedTvs(f.id).length));
   }
   const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   const total = entries.reduce((s, [, n]) => s + n, 0);
@@ -314,11 +325,12 @@ function renderHeader() {
 
   // One quiet meta sentence — a single colored dot, plain text, no badge chrome.
   let live = 0, stby = 0, offl = 0;
-  for (const t of shownTvs()) {
-    const st = t.boxId ? statuses[t.boxId] : null;
-    if (!st || !st.online) offl++;
-    else if (st.mode === 1) stby++;
-    else live++;
+  for (const f of shownFeeds()) {
+    const w = Math.max(1, feedTvs(f.id).length);
+    const st = statuses[f.id];
+    if (st && !st.online) offl += w;
+    else if (st && st.online && st.mode === 1) stby += w;
+    else live += w;
   }
   const feedsDown = cfg.boxes.filter((b) => statuses[b.id] && !statuses[b.id].online).length;
   const parts = [];
@@ -331,9 +343,10 @@ function renderHeader() {
   $('#metaLine').innerHTML = parts.join('<span class="msep">·</span>');
   renderMix();
 
-  const shown = shownTvs();
+  const shown = shownFeeds();
+  const tvN = shown.reduce((s, f) => s + feedTvs(f.id).length, 0);
   const btn = $('#tuneShown');
-  btn.textContent = ui.filter === 'all' ? `Tune all ${shown.length}` : `Tune ${title}`;
+  btn.textContent = ui.filter === 'all' ? `Tune all ${tvN || shown.length}` : `Tune ${title}`;
   btn.style.display = shown.length ? '' : 'none';
 
   $('#selectToggle').classList.toggle('on', ui.selecting);
@@ -344,27 +357,24 @@ function renderHeader() {
 }
 
 /* ---------- render: grid ---------- */
-function tvHtml(tv, share) {
-  const z = zoneOf(tv.zone);
-  const st = tv.boxId ? statuses[tv.boxId] : null;
-  const feed = tv.boxId ? feedOf(tv.boxId) : null;
-  const sel = ui.selected.has(tv.id);
-  const offline = !st || !st.online;
+function feedTileHtml(feed) {
+  const zid = feedZone(feed);
+  const z = zid ? zoneOf(zid) : null;
+  const eff = effChanOf(feed);
+  const st = eff.st;
+  const sel = ui.selected.has(feed.id);
+  const offline = !!(st && !st.online);
+  const n = feedTvs(feed.id).length;
   let screen;
-  if (!tv.boxId) {
-    screen = `<div class="screen is-static"><span class="scr-state offl">No feed</span></div>`;
-  } else if (offline) {
+  if (offline) {
     screen = `<div class="screen is-static"><span class="scr-state offl">No signal</span></div>`;
-  } else if (st.blocked) {
-    screen = `<div class="screen is-dim" title="The box answers but refuses channel info — check External Access on it, then restart the receiver">
-      <span class="scr-standby" style="color:rgba(248,152,45,0.7)">${I.target}<span>Info blocked</span></span></div>`;
-  } else if (st.mode === 1) {
+  } else if (st && st.online && st.mode === 1) {
     screen = `<div class="screen is-dim"><span class="scr-standby">${I.power}<span>Standby</span></span></div>`;
-  } else {
-    const cs = st.callsign || favName(st.chan) || `CH ${st.chan}`;
-    const a = acc(st.chan);
-    let prog = '', remain = '';
-    if (st.startTime && st.duration) {
+  } else if (eff.chan) {
+    const cs = (eff.live && st && st.callsign) || favName(eff.chan) || `CH ${eff.chan}`;
+    const a = acc(eff.chan);
+    let title = '', prog = '', remain = '';
+    if (eff.live && st.startTime && st.duration) {
       const elapsed = Date.now() / 1000 - st.startTime;
       const pct = Math.max(0, Math.min(1, elapsed / st.duration));
       const left = Math.round((st.duration - elapsed) / 60);
@@ -373,56 +383,56 @@ function tvHtml(tv, share) {
         if (left > 0) remain = `<span class="scr-left">${left}m left</span>`;
       }
     }
+    if (eff.live) title = esc((st && st.title) || '');
     screen = `<div class="screen is-live" style="--acc:${a}">
-      <div class="scr-top"><span class="live-dot"></span><span class="scr-ch">CH ${esc(st.chan)}</span></div>
+      <div class="scr-top"><span class="live-dot"></span><span class="scr-ch">CH ${esc(eff.chan)}</span></div>
       <div class="scr-cs">${esc(cs)}</div>
-      <div class="scr-title">${esc(st.title || '')}${remain}</div>
+      <div class="scr-title">${title}${remain}</div>
       ${prog}
     </div>`;
+  } else {
+    screen = `<div class="screen is-dim"><span class="scr-state offl" style="letter-spacing:0.24em">Tap to tune</span></div>`;
   }
-  const shared = feed && share[tv.boxId] > 1;
-  const siblings = shared ? share[tv.boxId] - 1 : 0;
-  return `<div class="tv ${sel ? 'selected' : ''} ${offline ? 'is-offline' : ''}" data-act="tile" data-id="${esc(tv.id)}" style="--zc:${esc(z ? z.color : '#7e8490')}">
+  return `<div class="tv ${sel ? 'selected' : ''} ${offline ? 'is-offline' : ''}" data-act="tile" data-id="${esc(feed.id)}" style="--zc:${esc(z ? z.color : '#7e8490')}">
     ${screen}
     <div class="placard">
       <span class="ptick"></span>
-      <span class="pname">${esc(tv.name)}</span>
-      ${shared ? `<span class="ftag" title="${esc(feed.name)} — shared with ${siblings} other TV${siblings === 1 ? '' : 's'}">${I.feed}${esc(String(share[tv.boxId]))}</span>` : ''}
+      <span class="pname">${esc(feed.name)}</span>
+      ${n ? `<span class="ftag">${esc(String(n))} TV${n === 1 ? '' : 's'}</span>` : ''}
       ${ui.selecting
         ? `<span class="tv-check">${I.check}</span>`
-        : `<button class="tv-power" data-act="tile-power" data-id="${esc(tv.id)}" title="${st && st.online && st.mode === 0 ? 'Standby' : 'Wake'}">${I.power}</button>`}
+        : `<button class="tv-power" data-act="tile-power" data-id="${esc(feed.id)}" title="${st && st.online && st.mode === 0 ? 'Standby' : 'Wake'}">${I.power}</button>`}
     </div>
   </div>`;
 }
 
 function renderGrid() {
   const grid = $('#grid');
-  if (!cfg.tvs.length) {
-    grid.innerHTML = `<div class="grid-empty">No TVs yet.<br>
-      <button class="btn primary" data-act="open-settings" data-tab="boxes">Set up TVs &amp; feeds</button></div>`;
+  if (!cfg.boxes.length) {
+    grid.innerHTML = `<div class="grid-empty">No feeds yet.<br>
+      <button class="btn primary" data-act="open-settings" data-tab="boxes">Scan the network</button></div>`;
     return;
   }
-  const share = feedShareCounts();
   let groups;
   if (ui.filter === 'all') {
-    groups = cfg.zones.map((z) => ({ zone: z, tvs: cfg.tvs.filter((t) => t.zone === z.id) }))
-      .filter((g) => g.tvs.length);
-    const unzoned = cfg.tvs.filter((t) => !zoneOf(t.zone));
-    if (unzoned.length) groups.push({ zone: { id: 'none', name: 'Unzoned', color: '#7e8490' }, tvs: unzoned });
+    groups = cfg.zones.map((z) => ({ zone: z, feeds: cfg.boxes.filter((b) => feedZone(b) === z.id) }))
+      .filter((g) => g.feeds.length);
+    const rest = cfg.boxes.filter((b) => !feedZone(b));
+    if (rest.length) groups.push({ zone: { id: 'none', name: groups.length ? 'Unzoned' : 'Feeds', color: '#7e8490' }, feeds: rest });
   } else {
-    const shown = shownTvs();
+    const shown = shownFeeds();
     const zone = ui.filter === 'none' ? { id: 'none', name: 'Unzoned', color: '#7e8490' } : zoneOf(ui.filter);
-    groups = shown.length ? [{ zone, tvs: shown, single: true }] : [];
+    groups = shown.length ? [{ zone, feeds: shown, single: true }] : [];
   }
   grid.innerHTML = groups.map((g) => {
-    // "16 devices on in 4 rooms"-style summary sentence for the section header
     const counts = new Map();
     let stby = 0, offl = 0;
-    for (const t of g.tvs) {
-      const st = t.boxId ? statuses[t.boxId] : null;
-      if (!st || !st.online) offl++;
-      else if (st.mode === 1) stby++;
-      else counts.set(String(st.chan), (counts.get(String(st.chan)) || 0) + 1);
+    for (const f of g.feeds) {
+      const w = Math.max(1, feedTvs(f.id).length);
+      const eff = effChanOf(f);
+      if (eff.st && !eff.st.online) offl += w;
+      else if (eff.st && eff.st.online && eff.st.mode === 1) stby += w;
+      else if (eff.chan) counts.set(eff.chan, (counts.get(eff.chan) || 0) + w);
     }
     const topEntry = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
     const bits = [];
@@ -430,16 +440,17 @@ function renderGrid() {
     if (stby) bits.push(`${stby} standby`);
     if (offl) bits.push(`${offl} offline`);
     const sub = bits.length ? `<span class="sec-sub">· ${esc(bits.join(' · '))}</span>` : '';
+    const tvTotal = g.feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
     return `
     <section class="sec" style="--zc:${esc(g.zone.color)}">
       <div class="sec-head">
         <span class="sec-tick"></span>
         <span class="sec-name">${esc(g.zone.name)}</span>
-        <span class="sec-n">${g.tvs.length}</span>
+        <span class="sec-n">${g.feeds.length} group${g.feeds.length === 1 ? '' : 's'}${tvTotal ? ` · ${tvTotal} TVs` : ''}</span>
         ${sub}
         ${g.single || g.zone.id === 'none' ? '' : `<button class="btn quiet sm" data-act="tune-zone" data-id="${esc(g.zone.id)}">Tune zone</button>`}
       </div>
-      <div class="cards">${g.tvs.map((t) => tvHtml(t, share)).join('')}</div>
+      <div class="cards">${g.feeds.map(feedTileHtml).join('')}</div>
     </section>`;
   }).join('') || `<div class="grid-empty">Nothing in this zone yet.</div>`;
 }
@@ -566,19 +577,17 @@ const focusPresetName = () => setTimeout(() => { const el = $('#presetName'); if
 // re-rendering the whole overlay restarted its entrance animation (visible flash).
 function updatePickerCurrent() {
   if (!ui.picker) return;
-  const singleTv = ui.picker.tvIds.length === 1 ? cfg.tvs.find((t) => t.id === ui.picker.tvIds[0]) : null;
-  const st = singleTv && singleTv.boxId ? statuses[singleTv.boxId] : null;
-  const current = st && st.online && st.mode === 0 ? String(st.chan) : null;
+  const singleFeed = ui.picker.tvIds.length === 1 ? feedOf(ui.picker.tvIds[0]) : null;
+  const current = singleFeed ? effChanOf(singleFeed).chan : null;
   document.querySelectorAll('#modalHost .fav-btn').forEach((b) => b.classList.toggle('current', b.dataset.chan === current));
 }
 
 function pickerHtml() {
-    const singleTv = ui.picker.tvIds.length === 1 ? cfg.tvs.find((t) => t.id === ui.picker.tvIds[0]) : null;
-    const single = singleTv && singleTv.boxId ? statuses[singleTv.boxId] : null;
-    const current = single && single.online && single.mode === 0 ? String(single.chan) : null;
-    const share = feedShareCounts();
-    const shareNote = singleTv && singleTv.boxId && share[singleTv.boxId] > 1
-      ? ` &mdash; shares ${esc((feedOf(singleTv.boxId) || {}).name || 'a feed')} with ${share[singleTv.boxId] - 1} other TV${share[singleTv.boxId] === 2 ? '' : 's'}`
+    const singleFeed = ui.picker.tvIds.length === 1 ? feedOf(ui.picker.tvIds[0]) : null;
+    const current = singleFeed ? effChanOf(singleFeed).chan : null;
+    const singleN = singleFeed ? feedTvs(singleFeed.id).length : 0;
+    const shareNote = singleFeed && singleN
+      ? ` &mdash; ${singleN} TV${singleN === 1 ? '' : 's'} follow this group`
       : '';
     return `<div class="overlay" data-act="overlay">
       <div class="sheet">
@@ -604,7 +613,7 @@ function pickerHtml() {
                 <button class="pad-key dim" data-act="pad-back">DEL</button>
               </div>
               <button class="btn primary pad-go" data-act="pad-go">Go</button>
-              ${ui.picker.tvIds.some((id) => { const t = cfg.tvs.find((x) => x.id === id); return t && t.tvToken; })
+              ${ui.picker.tvIds.some((id) => feedTvs(id).some((t) => t.tvToken))
                 ? `<div class="pow-row">
                     <button class="btn outline" data-act="picker-vol-down" title="Volume down">&minus;&nbsp;Vol</button>
                     <button class="btn outline" data-act="picker-mute">Mute</button>
@@ -1184,18 +1193,15 @@ document.addEventListener('click', async (e) => {
         ui.selected.has(id) ? ui.selected.delete(id) : ui.selected.add(id);
         renderGrid(); renderSelbar();
       } else {
-        const tv = cfg.tvs.find((t) => t.id === id);
-        gatedTune(() => openPicker([id], tv ? tv.name : 'TV'));
+        const feed = feedOf(id);
+        gatedTune(() => openPicker([id], feed ? feed.name : 'group'));
       }
       break;
     }
     case 'tile-power': {
       e.stopPropagation();
-      doPowerTvs([btn.dataset.id], !(() => {
-        const tv = cfg.tvs.find((t) => t.id === btn.dataset.id);
-        const st = tv && tv.boxId ? statuses[tv.boxId] : null;
-        return st && st.online && st.mode === 0;
-      })());
+      const st = statuses[btn.dataset.id];
+      doPowerFeeds([btn.dataset.id], !(st && st.online && st.mode === 0));
       break;
     }
     case 'chip': ui.filter = btn.dataset.id; renderSideNav(); renderHeader(); renderGrid(); break;
@@ -1205,22 +1211,25 @@ document.addEventListener('click', async (e) => {
       renderGrid(); renderSelbar(); renderHeader();
       break;
     case 'tune-shown': {
-      const shown = shownTvs();
-      const label = ui.filter === 'all' ? `all ${shown.length} TVs`
-        : ui.filter === 'none' ? `${shown.length} unzoned TVs`
-        : `${(zoneOf(ui.filter) || {}).name} — ${shown.length} TVs`;
-      gatedTune(() => openPicker(shown.map((t) => t.id), label));
+      const shown = shownFeeds();
+      const tvN = shown.reduce((s, f) => s + feedTvs(f.id).length, 0);
+      const label = ui.filter === 'all' ? `all ${tvN || shown.length} TVs`
+        : `${ui.filter === 'none' ? 'unzoned' : (zoneOf(ui.filter) || {}).name} — ${tvN || shown.length} TVs`;
+      gatedTune(() => openPicker(shown.map((f) => f.id), label));
       break;
     }
     case 'tune-zone': {
       const z = zoneOf(btn.dataset.id);
-      const tvs = cfg.tvs.filter((t) => t.zone === btn.dataset.id);
-      if (z && tvs.length) gatedTune(() => openPicker(tvs.map((t) => t.id), `${z.name} — ${tvs.length} TVs`));
+      const feeds = cfg.boxes.filter((b) => feedZone(b) === btn.dataset.id);
+      if (z && feeds.length) {
+        const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
+        gatedTune(() => openPicker(feeds.map((f) => f.id), `${z.name} — ${tvN} TVs`));
+      }
       break;
     }
     case 'sel-tune': gatedTune(() => openPicker([...ui.selected], `${ui.selected.size} selected`)); break;
-    case 'sel-on': doPowerTvs([...ui.selected], true); break;
-    case 'sel-off': doPowerTvs([...ui.selected], false); break;
+    case 'sel-on': doPowerFeeds([...ui.selected], true); break;
+    case 'sel-off': doPowerFeeds([...ui.selected], false); break;
     case 'sel-clear': ui.selected.clear(); ui.selecting = false; renderGrid(); renderSelbar(); renderHeader(); break;
     case 'preset': {
       const p = cfg.presets.find((x) => x.id === btn.dataset.id);
@@ -1239,12 +1248,13 @@ document.addEventListener('click', async (e) => {
       if (!name.trim()) { toast('Give the scene a name', 'warn'); break; }
       const assignments = {};
       for (const z of cfg.zones) {
-        const chans = cfg.tvs.filter((t) => t.zone === z.id && t.boxId)
-          .map((t) => statuses[t.boxId]).filter((s) => s && s.online && s.mode === 0).map((s) => String(s.chan));
-        if (!chans.length) continue;
         const counts = {};
-        for (const c of chans) counts[c] = (counts[c] || 0) + 1;
-        assignments[z.id] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+        for (const f of cfg.boxes.filter((b) => feedZone(b) === z.id)) {
+          const eff = effChanOf(f);
+          if (eff.chan) counts[eff.chan] = (counts[eff.chan] || 0) + Math.max(1, feedTvs(f.id).length);
+        }
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        if (top) assignments[z.id] = top[0];
       }
       ui.savePreset = false;
       await saveCfg({ presets: [...cfg.presets, { id: uid('ps'), name: name.trim(), assignments }] });
@@ -1257,10 +1267,7 @@ document.addEventListener('click', async (e) => {
     case 'prev-watch': {
       const p = cfg.preview || {};
       const feed = p.boxId ? feedOf(p.boxId) : null;
-      if (feed) {
-        const tvOnFeed = cfg.tvs.find((t) => t.boxId === feed.id);
-        if (tvOnFeed) openPicker([tvOnFeed.id], feed.name);
-      }
+      if (feed) gatedTune(() => openPicker([feed.id], feed.name));
       break;
     }
     case 'power-all-on': doPowerTvs(cfg.tvs.map((t) => t.id), true); break;
@@ -1297,9 +1304,9 @@ document.addEventListener('click', async (e) => {
 
     case 'fav': {
       const chan = btn.dataset.chan;
-      const tvIds = ui.picker.tvIds, label = ui.picker.label;
+      const feedIds = ui.picker.tvIds, label = ui.picker.label;
       ui.picker = null; renderModal();
-      doTune(tvIds, chan, label);
+      doTuneFeeds(feedIds, chan, label);
       break;
     }
     case 'pad': {
@@ -1311,21 +1318,21 @@ document.addEventListener('click', async (e) => {
     case 'pad-back': ui.pad = ui.pad.slice(0, -1); $('#padDisplay').textContent = ui.pad; break;
     case 'pad-go': {
       const chan = ui.pad.replace(/\.$/, '');
-      if (!chan || !CHAN_RE.test(chan)) { toast('Enter a channel like 20.1', 'warn'); break; }
-      const tvIds = ui.picker.tvIds, label = ui.picker.label;
+      if (!chan || !CHAN_RE.test(chan)) { toast('Enter a channel number', 'warn'); break; }
+      const feedIds = ui.picker.tvIds, label = ui.picker.label;
       ui.picker = null; renderModal();
-      doTune(tvIds, chan, label);
+      doTuneFeeds(feedIds, chan, label);
       break;
     }
-    case 'picker-on': doPowerTvs(ui.picker.tvIds, true); ui.picker = null; renderModal(); break;
-    case 'picker-off': doPowerTvs(ui.picker.tvIds, false); ui.picker = null; renderModal(); break;
+    case 'picker-on': doPowerFeeds(ui.picker.tvIds, true); ui.picker = null; renderModal(); break;
+    case 'picker-off': doPowerFeeds(ui.picker.tvIds, false); ui.picker = null; renderModal(); break;
     // volume keeps the picker open — staff tap it repeatedly
-    case 'picker-vol-up': doVolume(ui.picker.tvIds, 'up'); break;
-    case 'picker-vol-down': doVolume(ui.picker.tvIds, 'down'); break;
-    case 'picker-mute': doVolume(ui.picker.tvIds, 'mute'); break;
-    case 'sel-vol-up': doVolume([...ui.selected], 'up'); break;
-    case 'sel-vol-down': doVolume([...ui.selected], 'down'); break;
-    case 'sel-mute': doVolume([...ui.selected], 'mute'); break;
+    case 'picker-vol-up': doVolume(ui.picker.tvIds.flatMap((id) => feedTvs(id)).map((t) => t.id), 'up'); break;
+    case 'picker-vol-down': doVolume(ui.picker.tvIds.flatMap((id) => feedTvs(id)).map((t) => t.id), 'down'); break;
+    case 'picker-mute': doVolume(ui.picker.tvIds.flatMap((id) => feedTvs(id)).map((t) => t.id), 'mute'); break;
+    case 'sel-vol-up': doVolume([...ui.selected].flatMap((id) => feedTvs(id)).map((t) => t.id), 'up'); break;
+    case 'sel-vol-down': doVolume([...ui.selected].flatMap((id) => feedTvs(id)).map((t) => t.id), 'down'); break;
+    case 'sel-mute': doVolume([...ui.selected].flatMap((id) => feedTvs(id)).map((t) => t.id), 'mute'); break;
 
     case 'vizio-pair': {
       const tv = cfg.tvs.find((t) => t.id === btn.dataset.id);
@@ -1779,12 +1786,12 @@ let lastActivity = Date.now();
 function sleepStatusText() {
   let live = 0;
   const counts = new Map();
-  for (const t of cfg.tvs) {
-    const st = t.boxId ? statuses[t.boxId] : null;
-    if (st && st.online && st.mode === 0) {
-      live++;
-      if (st.chan) counts.set(String(st.chan), (counts.get(String(st.chan)) || 0) + 1);
-    }
+  for (const f of cfg.boxes) {
+    const w = Math.max(1, feedTvs(f.id).length);
+    const eff = effChanOf(f);
+    if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
+    live += w;
+    if (eff.chan) counts.set(eff.chan, (counts.get(eff.chan) || 0) + w);
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
   return `${live} TV${live === 1 ? '' : 's'} live${top && top[1] >= 2 ? ` · mostly ${favName(top[0]) || 'CH ' + top[0]}` : ''}`;
@@ -1881,11 +1888,12 @@ setInterval(() => {
   }
   if (q.get('sel') === '1') {
     ui.selecting = true;
-    cfg.tvs.slice(0, 3).forEach((t) => ui.selected.add(t.id));
+    cfg.boxes.slice(0, 3).forEach((b) => ui.selected.add(b.id));
   }
   if (q.get('view') === 'picker') {
-    const tread = cfg.tvs.filter((t) => t.zone === 'tread');
-    ui.picker = { tvIds: tread.map((t) => t.id), label: `Treadmills — ${tread.length} TVs` };
+    const feeds = cfg.boxes.filter((b) => feedZone(b) === 'tread');
+    const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
+    ui.picker = { tvIds: feeds.map((f) => f.id), label: `Treadmills — ${tvN} TVs` };
   } else if (q.get('view') === 'settings') {
     ui.settings = true;
     ui.settingsTab = q.get('tab') || 'boxes';
