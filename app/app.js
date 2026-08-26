@@ -906,7 +906,8 @@ function audioTab() {
         ${ui.audioProbe && ui.audioProbe.running
           ? `<span class="scan-status"><span class="spinner"></span> <span id="probeStatus">probing&hellip;</span></span>`
           : `<button class="mini" data-act="audio-probe">${I.radar} Probe (read-only)</button>
-             <button class="mini" data-act="audio-hqprobe" title="Native HiQnet protocol on :3804 — the language Audio Architect and the AMX use. Try this when the DI probe reports silence.">HiQnet :3804</button>`}
+             <button class="mini" data-act="audio-hqprobe" title="Native HiQnet protocol on :3804 — the language Audio Architect and the AMX use. Try this when the DI probe reports silence.">HiQnet :3804</button>
+             <button class="mini" data-act="audio-fixfw" title="Adds a Windows Firewall allow rule for inbound UDP 3804 (HiQnet replies). Needs the admin prompt.">Fix firewall</button>`}
       </div>
       ${ui.audioProbe && ui.audioProbe.found ? (ui.audioProbe.found.length ? `
       <div class="row-grid row-head" style="grid-template-columns:1.3fr 0.9fr auto auto"><span>Control found</span><span>Current value</span><span></span><span></span></div>
@@ -1619,6 +1620,11 @@ document.addEventListener('click', async (e) => {
       renderModal();
       break;
     }
+    case 'audio-fixfw': {
+      const r = await api.audioFixFw();
+      toast(r.ok ? 'Windows will ask for admin approval — click Yes, then probe again' : `Couldn't request the rule: ${r.err}`, r.ok ? 'ok' : 'err', 5200);
+      break;
+    }
     case 'audio-hqprobe': {
       const nodesRaw = (($('#probeNodes') || {}).value || '').trim();
       const rangeRaw = (($('#probeRange') || {}).value || '0x1-0xFFF').trim();
@@ -2134,8 +2140,8 @@ function probeDiagText(ap) {
     if (d.errors > 0) return `The processor heard every query and answered ${d.errors} explicit errors - these object numbers don't exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
     if (d.info > 0 || d.bytes > 0) return `The processor replied (${d.bytes} bytes, first: ${d.rawHex}) but nothing parsed as live values. Photograph the Diagnostics log and report this.`;
     if (d.deviceDev != null) return `The device (0x${d.deviceDev.toString(16).toUpperCase()}) answered the login handshake but ignored the queries. Photograph the Diagnostics log and report this.`;
-    if (d.udpPort != null && d.udpPort !== 3804) return 'Could not claim udp/3804 - replies go there, so CLOSE Audio Architect and NetSetter, then probe again.';
-    return 'Port 3804 never answered. Close Audio Architect/NetSetter if open, and if Windows asked about network access for this app, allow it - then probe again.';
+    if (d.udpStatus === 'inuse') return 'udp/3804 is exclusively held by another program - close it (check the tray and Task Manager), then probe again.';
+    return 'We owned udp/3804 and the network stayed silent - most likely the Windows Firewall is blocking inbound UDP. Tap Fix firewall (allow the admin prompt), then probe again.';
   }
   if (d.naks > 0) return `The processor REJECTED ${d.naks} of our queries (NAK) - it speaks a different protocol dialect. Stop probing and report this.`;
   if (d.acks > 0) return `The processor ACCEPTED all ${d.acks} queries but none of these object numbers exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;

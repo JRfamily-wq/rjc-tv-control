@@ -350,13 +350,27 @@ ipcMain.handle('audio:hqprobe', async (_e, { nodes, objFrom, objTo }) => {
       : diag.info > 0 ? `0 controls — ${diag.info} info replies but none parseable (first bytes: ${diag.rawHex})`
       : diag.bytes > 0 ? `0 controls — unrecognized traffic (first bytes: ${diag.rawHex})`
       : diag.deviceDev != null ? `0 controls — device 0x${diag.deviceDev.toString(16).toUpperCase()} answered the login (via ${diag.transport}) but ignored the queries`
-      : `0 controls — :3804 silent on TCP and UDP${diag.udpPort === 3804 ? ' (we DID own udp/3804 — close Audio Architect/NetSetter and check the Windows Firewall allow for this app)' : ' (could not claim udp/3804 — close Audio Architect/NetSetter and probe again)'}`;
+      : `0 controls — :3804 silent on TCP and UDP${diag.udpStatus === 'bound' ? ' (we owned udp/3804 and heard nothing — likely the Windows Firewall blocking inbound UDP; use Fix firewall)' : diag.udpStatus === 'inuse' ? ' (udp/3804 is exclusively held by another program — close it and probe again)' : ''}`;
     log('info', 'audio', `HiQnet probe done: ${verdict}`);
     return { ok: true, found, diag, via: 'hiqnet' };
   } catch (e) {
     log('warn', 'audio', `Probe failed: ${e.message}`);
     return { ok: false, err: String(e.message || e) };
   }
+});
+
+// One-click firewall rule: HiQnet replies arrive as inbound UDP on 3804, and a
+// portable exe gets a fresh firewall identity every version. Port-scoped rule
+// (any program) so it survives future versions. Elevates via UAC.
+ipcMain.handle('audio:fixfw', async () => {
+  const { spawn } = require('child_process');
+  try {
+    spawn('powershell.exe', ['-NoProfile', '-Command',
+      `Start-Process netsh -Verb RunAs -ArgumentList 'advfirewall firewall add rule name="RJC TV Control HiQnet" dir=in action=allow protocol=UDP localport=3804'`],
+      { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    log('info', 'audio', 'Firewall rule requested (UAC) — allow it, then probe again');
+    return { ok: true };
+  } catch (e) { return { ok: false, err: String(e.message || e) }; }
 });
 
 // Dip: read → set −6 dB → verify mid-dip → restore exact value.

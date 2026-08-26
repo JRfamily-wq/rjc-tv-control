@@ -143,31 +143,29 @@ function tryUdp(ip, c) {
   // Devices reply to the well-known port 3804 itself, NOT the query's source
   // port — so we MUST own udp/3804 to hear anything (AA/NetSetter hold it too:
   // reuseAddr lets us coexist, but a live AA may still swallow the replies).
-  const attempt = (port) => new Promise((resolve) => {
+  return new Promise((resolve) => {
     let settled = false;
-    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
     let u;
-    try { u = dgram.createSocket({ type: 'udp4', reuseAddr: true }); } catch { return finish(null); }
-    u.on('error', () => { try { u.close(); } catch { /* noop */ } finish(null); });
+    try { u = dgram.createSocket({ type: 'udp4', reuseAddr: true }); } catch { c.udpStatus = 'error'; return resolve(null); }
+    u.on('error', () => { c.udpStatus = c.udpStatus === 'bound' ? c.udpStatus : 'inuse'; try { u.close(); } catch { /* noop */ } if (!settled) { settled = true; resolve(null); } });
     u.on('message', (msg, rinfo) => {
       if (rinfo.address !== ip) return;
       ingest(c, msg);
       if (!settled) { settled = true; resolve(u); }
     });
-    u.bind(port, () => {
-      c.udpPort = port;
+    u.bind(3804, () => {
+      c.udpStatus = 'bound';
       try { u.setBroadcast(true); } catch { /* noop */ }
       const seq = c.seq = (c.seq + 1) & 0xffff;
       const pay = discoPayload();
       const buf = Buffer.concat([header(0xffff, 0, 0, MSG.DISCO, 0, pay.length, seq, null), pay]);
       u.send(buf, 3804, ip, () => { /* noop */ });
       u.send(buf, 3804, '255.255.255.255', () => { /* noop */ });
-      // ask twice — first datagram after boot sometimes just primes ARP
+      // ask twice — the first datagram after boot sometimes just primes ARP
       setTimeout(() => { try { u.send(buf, 3804, ip, () => { /* noop */ }); } catch { /* noop */ } }, 700);
     });
     setTimeout(() => { if (!settled) { settled = true; try { u.close(); } catch { /* noop */ } resolve(null); } }, 2600);
   });
-  return attempt(3804).then((u) => u || attempt(0));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -330,7 +328,7 @@ async function probe(ip, nodes, objFrom, objTo, svIds, onProgress) {
   }
   const rawHex = c.stats.raw.map((b) => b.toString(16).padStart(2, '0')).join(' ');
   for (const f of found.values()) dtCache.set(`${ip}/${f.node}/${f.vd}/${f.obj}/${f.param}`, f.dt);
-  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev, transport: c.transport || 'none', udpPort: c.udpPort == null ? null : c.udpPort } };
+  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev, transport: c.transport || 'none', udpStatus: c.udpStatus || 'untried' } };
 }
 
 module.exports = { probe, readValue, setValue, setPercent, getParams, sleep };
