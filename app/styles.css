@@ -175,6 +175,26 @@ svg { display: block; }
 .tt-save .tt-name { color: var(--side-muted); }
 .tt-save:hover .tt-name { color: var(--side-text); }
 
+/* speaker sliders in the sidebar */
+.aud-row { padding: 2px 10px 8px 14px; }
+.aud-row.aud-off { opacity: 0.55; }
+.aud-top { display: flex; align-items: center; gap: 8px; }
+.aud-name { flex: 1; font-size: 12.5px; font-weight: 700; color: var(--side-text); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aud-pct { font-family: var(--mono); font-size: 10.5px; color: var(--side-muted); }
+.aud-mute { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: var(--side-muted); flex: none; }
+.aud-mute:hover { background: var(--side-hover); color: var(--side-text); }
+.aud-mute.on { color: var(--orange); }
+.aud-mute .ic { width: 15px; height: 15px; }
+.aud-slider { -webkit-appearance: none; width: 100%; height: 24px; background: transparent; cursor: pointer; }
+.aud-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
+.aud-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--red); margin-top: -6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.aud-slider:disabled { cursor: default; }
+.aud-slider:disabled::-webkit-slider-thumb { border-color: var(--side-muted); }
+
 .side-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--side-line); }
 .side-meta {
   display: flex; flex-direction: column; gap: 3px;

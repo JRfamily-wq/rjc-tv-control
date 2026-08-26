@@ -82,6 +82,9 @@ async function status(box) {
     const m = await getJson(box.ip, '/info/mode');
     if (m && m.mode === 1) return { online: true, mode: 1 };
     const t = await getJson(box.ip, '/tv/getTuned');
+    // A box with External Access allowed can still refuse getTuned (403 body,
+    // no major) until restarted — surface that as "blocked", not "CH undefined".
+    if (!t || t.major == null) return { online: true, mode: 0, blocked: true };
     // Satellite channels report minor 65535; OTA/RF locals report a real minor.
     const chan = (t.minor != null && t.minor > 0 && t.minor < 100) ? `${t.major}.${t.minor}` : String(t.major);
     return {

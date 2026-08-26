@@ -10,6 +10,7 @@ const discovery = require('./discovery.cjs');
 const vizio = require('./vizio.cjs');
 const serial = require('./serial.cjs');
 const itach = require('./itach.cjs');
+const bss = require('./bss.cjs');
 
 const argOf = (k) => {
   const a = process.argv.find((x) => x.startsWith(`--${k}=`));
@@ -277,6 +278,71 @@ ipcMain.handle('vizio:vol', (_e, { tvIds, action }) =>
 ipcMain.handle('vizio:power', (_e, { tvIds, on }) =>
   vizioEach(tvIds, on ? 'powerOn' : 'powerOff'));
 
+// ---------- BSS speaker audio ----------
+const audioZone = (id) => ((store.load().audio || {}).zones || []).find((z) => z.id === id);
+
+ipcMain.handle('audio:set', async (_e, { zoneId, pct }) => {
+  const cfg = store.load();
+  const z = audioZone(zoneId);
+  if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
+  try {
+    await bss.setPercent(cfg.audio.ip, z.addr, z.gainParam ?? 0, pct);
+    return { ok: true };
+  } catch (e) {
+    log('warn', 'audio', `Volume set failed for ${z.name}: ${e.message}`);
+    return { ok: false, err: String(e.message || e) };
+  }
+});
+
+ipcMain.handle('audio:mute', async (_e, { zoneId, muted }) => {
+  const cfg = store.load();
+  const z = audioZone(zoneId);
+  if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
+  try {
+    await bss.setValue(cfg.audio.ip, z.addr, z.muteParam ?? 1, muted ? 1 : 0);
+    log('info', 'audio', `${z.name} ${muted ? 'muted' : 'unmuted'}`);
+    return { ok: true };
+  } catch (e) {
+    log('warn', 'audio', `Mute failed for ${z.name}: ${e.message}`);
+    return { ok: false, err: String(e.message || e) };
+  }
+});
+
+// ---------- SmartCast TV discovery (port 7345 sweep) ----------
+ipcMain.handle('vizio:scan', async () => {
+  const os2 = require('os');
+  const bases = new Set();
+  const ifs = os2.networkInterfaces();
+  for (const name of Object.keys(ifs)) {
+    for (const a of ifs[name] || []) {
+      if (a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.')) {
+        bases.add(a.address.split('.').slice(0, 3).join('.'));
+      }
+    }
+  }
+  const targets = [];
+  for (const b of bases) for (let i = 1; i <= 254; i++) targets.push(`${b}.${i}`);
+  const found = [];
+  let idx = 0;
+  async function probe(ip) {
+    return new Promise((resolve) => {
+      const s = net.createConnection({ host: ip, port: 7345, timeout: 450 });
+      s.on('connect', () => { s.destroy(); resolve(true); });
+      s.on('timeout', () => { s.destroy(); resolve(false); });
+      s.on('error', () => resolve(false));
+    });
+  }
+  await Promise.all(Array.from({ length: 64 }, async () => {
+    while (idx < targets.length) {
+      const ip = targets[idx++];
+      if (await probe(ip)) found.push(ip);
+    }
+  }));
+  found.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  log('info', 'scan', `SmartCast TV scan: ${found.length} found`);
+  return { found };
+});
+
 ipcMain.handle('net:scan', async () => {
   log('info', 'scan', 'Network scan started');
   const res = await discovery.scan((p) => broadcast('scan:progress', p));
@@ -447,7 +513,7 @@ function createWindow() {
 
   // Harness knobs: --view=picker|settings --tab=boxes --sel=1
   const query = {};
-  for (const k of ['view', 'tab', 'sel', 'click', 'theme', 'preview', 'sleep', 'scroll']) {
+  for (const k of ['view', 'tab', 'sel', 'click', 'theme', 'preview', 'sleep', 'scroll', 'audio']) {
     const v = argOf(k);
     if (v !== null) query[k] = v;
   }

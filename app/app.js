@@ -22,6 +22,7 @@ const ui = {
   pairingTv: null,
   diag: { log: [], filter: 'all', info: null, pings: {}, tests: {}, com: null },
   openCards: new Set(),
+  tvscan: null,
 };
 
 // collapsed-by-default card for advanced/rarely-touched settings
@@ -78,6 +79,8 @@ const I = {
   chevd: ic('<path d="M6.5 9.5l5.5 5.5 5.5-5.5"/>', 'chev'),
   copy: ic('<rect x="8.5" y="8.5" width="12" height="12" rx="1.5"/><path d="M15.5 8.5V5A1.5 1.5 0 0 0 14 3.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5"/>'),
   feed: ic('<path d="M4.5 19.5a15 15 0 0 1 15-15"/><path d="M4.5 13.5a9 9 0 0 1 9-9"/><circle cx="5.6" cy="18.4" r="1.7" fill="currentColor" stroke="none"/>'),
+  speaker: ic('<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5z"/><path d="M15 9.2a4.2 4.2 0 0 1 0 5.6"/><path d="M17.6 6.6a8 8 0 0 1 0 10.8"/>'),
+  spkmute: ic('<path d="M4 9.5v5h3.5L12 19V5L7.5 9.5z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/>'),
 };
 
 /* ---------- per-channel accent colors (the gym's lineup) ---------- */
@@ -248,6 +251,22 @@ function renderSideNav() {
   $('#zoneNav').innerHTML = html;
 }
 
+function renderAudio() {
+  const host = $('#audioList');
+  const a = cfg.audio || {};
+  if (!a.enabled || !(a.zones || []).length) { host.innerHTML = ''; return; }
+  let html = `<div class="side-label"><span>Audio</span></div>`;
+  html += a.zones.map((z) => `<div class="aud-row ${z.addr ? '' : 'aud-off'}" title="${z.addr ? '' : 'No address set — see Settings → Audio'}">
+    <div class="aud-top">
+      <span class="aud-name">${esc(z.name)}</span>
+      <span class="aud-pct">${z.muted ? 'MUTE' : `${Math.round(z.pct ?? 50)}%`}</span>
+      <button class="aud-mute ${z.muted ? 'on' : ''}" data-act="audio-mute" data-id="${esc(z.id)}" title="${z.muted ? 'Unmute' : 'Mute'}">${z.muted ? I.spkmute : I.speaker}</button>
+    </div>
+    <input type="range" class="aud-slider" min="0" max="100" value="${Math.round(z.pct ?? 50)}" data-bind="audio-slider" data-id="${esc(z.id)}" ${z.addr ? '' : 'disabled'}/>
+  </div>`).join('');
+  host.innerHTML = html;
+}
+
 function renderScenes() {
   // Scenes as timetable entries — condensed caps with dotted leaders.
   let html = `<div class="side-label"><span>Scenes</span></div>`;
@@ -336,6 +355,9 @@ function tvHtml(tv, share) {
     screen = `<div class="screen is-static"><span class="scr-state offl">No feed</span></div>`;
   } else if (offline) {
     screen = `<div class="screen is-static"><span class="scr-state offl">No signal</span></div>`;
+  } else if (st.blocked) {
+    screen = `<div class="screen is-dim" title="The box answers but refuses channel info — check External Access on it, then restart the receiver">
+      <span class="scr-standby" style="color:rgba(248,152,45,0.7)">${I.target}<span>Info blocked</span></span></div>`;
   } else if (st.mode === 1) {
     screen = `<div class="screen is-dim"><span class="scr-standby">${I.power}<span>Standby</span></span></div>`;
   } else {
@@ -505,7 +527,7 @@ function updatePreviewChip() {
 }
 
 function renderAll() {
-  renderSideNav(); renderScenes(); renderHeader(); renderGrid(); renderSelbar(); renderPreview(); renderModal();
+  renderSideNav(); renderScenes(); renderAudio(); renderHeader(); renderGrid(); renderSelbar(); renderPreview(); renderModal();
 }
 
 /* ---------- render: modals ---------- */
@@ -713,6 +735,7 @@ const TABS = [
   ['zones', 'Zones', I.zonebox],
   ['channels', 'Channels', I.star],
   ['presets', 'Scenes', I.boltf],
+  ['audio', 'Audio', I.speaker],
   ['general', 'General', I.knob],
   ['diag', 'Diagnostics', I.pulse],
   ['guide', 'Setup Guide', I.clipboard],
@@ -751,10 +774,46 @@ function settingsBody() {
   if (t === 'zones') return zonesTab();
   if (t === 'channels') return channelsTab();
   if (t === 'presets') return presetsTab();
+  if (t === 'audio') return audioTab();
   if (t === 'general') return generalTab();
   if (t === 'diag') return diagTab();
   if (t === 'guide') return guideTab();
   return '';
+}
+
+/* ---------- audio tab (BSS speaker zones) ---------- */
+function audioTab() {
+  const a = cfg.audio || {};
+  return `${setHead('Audio',
+    'Zone volume for the ceiling speakers, straight to the BSS processor over the network. Sliders appear in the sidebar once this is on and addressed.')}
+    <div class="card slim"><h3>${I.speaker} BSS Soundweb London</h3>
+      <div class="field-row"><label>Speaker control<span class="hint">Shows the volume sliders in the sidebar</span></label>
+        <span class="switch"><input type="checkbox" ${a.enabled ? 'checked' : ''} data-bind="audio-enabled"/><span class="track"></span></span></div>
+      <div class="field-row"><label>BLU-100 IP address</label>
+        <span class="pairbox">
+          <input type="text" value="${esc(a.ip || '')}" data-bind="audio-ip" placeholder="192.168.1.x" style="width:140px;font-family:var(--mono)"/>
+          <button class="mini" data-act="audio-test">Test :1023</button>
+        </span></div>
+    </div>
+    <div class="card slim"><h3>${I.zonebox} Speaker zones</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">Each zone needs its gain object's HiQnet address from the design — get it with the free HARMAN <b>Audio Architect</b> app (see steps below). Format: <code style="font-family:var(--mono)">node,vd,object</code> — hex like <code style="font-family:var(--mono)">0x100,0x3,0x152</code> is fine.</p>
+      <div class="row-grid row-head" style="grid-template-columns:1.1fr 1.3fr 0.55fr 0.55fr auto"><span>Zone</span><span>Address</span><span>Gain #</span><span>Mute #</span><span></span></div>
+      ${(a.zones || []).map((z) => `<div class="row-grid" style="grid-template-columns:1.1fr 1.3fr 0.55fr 0.55fr auto">
+        <input type="text" value="${esc(z.name)}" data-bind="az-name" data-id="${esc(z.id)}" maxlength="22"/>
+        <input type="text" value="${esc(z.addr || '')}" data-bind="az-addr" data-id="${esc(z.id)}" placeholder="0x100,0x3,0x152" style="font-family:var(--mono)"/>
+        <input type="number" value="${esc(z.gainParam ?? 0)}" data-bind="az-gain" data-id="${esc(z.id)}" min="0" max="99" style="width:64px"/>
+        <input type="number" value="${esc(z.muteParam ?? 1)}" data-bind="az-mute" data-id="${esc(z.id)}" min="0" max="99" style="width:64px"/>
+        <button class="mini warn" data-act="az-remove" data-id="${esc(z.id)}">${I.trash}</button>
+      </div>`).join('')}
+      <div style="margin-top:12px"><button class="btn outline" data-act="az-add">${I.plus} Add zone</button></div>
+    </div>
+    <div class="card slim guide"><h3>${I.clipboard} Getting the addresses (one laptop session)</h3>
+      <ol>
+        <li>Install HARMAN <b>Audio Architect</b> (free) on a laptop on the gym network.</li>
+        <li>Let it discover the BLU-100 (that reveals its IP for the field above), then go <b>online</b> and open the design living in the device.</li>
+        <li>Find the gain/fader block feeding each speaker zone; its properties show the <b>HiQnet address</b> (node / virtual device / object) — type it here. Gain # and Mute # are that block's parameter numbers (0 and 1 for a standard single-channel gain; per-channel blocks count up).</li>
+        <li>Test with the slider at a quiet hour — if the wrong thing moves, it's the wrong block; pick the next gain in the chain.</li>
+      </ol></div>`;
 }
 
 /* ---------- diagnostics tab ---------- */
@@ -887,6 +946,20 @@ function boxesTab() {
     </div>
     <div class="card editgrid"><h3>${I.tvone} TVs — ${cfg.tvs.length} screens</h3>
       <p style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">Vizio volume &amp; power: enter the TV's IP, press Pair, type the PIN it shows.</p>
+      ${ui.tvscan && ui.tvscan.running
+        ? `<div class="scan-status" style="margin-bottom:10px"><span class="spinner"></span> Sweeping the network for SmartCast TVs&hellip;</div>`
+        : `<div style="margin-bottom:10px"><button class="mini" data-act="tvscan">${I.radar} Scan for TVs</button></div>`}
+      ${ui.tvscan && ui.tvscan.found && ui.tvscan.found.length ? `
+      <div class="row-grid row-head" style="grid-template-columns:1fr 1.3fr auto"><span>SmartCast TV found</span><span>Which TV is it?</span><span></span></div>
+      ${ui.tvscan.found.map((ip) => `<div class="row-grid" style="grid-template-columns:1fr 1.3fr auto">
+        <span class="ip">${esc(ip)}</span>
+        <span class="pairbox"><select style="width:100%">
+          <option value="">Pick a TV&hellip;</option>
+          ${cfg.tvs.map((t) => `<option value="${esc(t.id)}" ${t.tvIp === ip ? 'selected' : ''}>${esc(t.name)}${t.tvIp === ip ? ' (assigned)' : ''}</option>`).join('')}
+        </select>
+        <button class="mini" data-act="tvscan-assign" data-ip="${esc(ip)}">Set</button></span>
+        <span></span>
+      </div>`).join('')}` : ''}
       <div class="row-grid row-head" style="grid-template-columns:1fr 0.68fr 0.78fr 1.55fr auto"><span>Name</span><span>Zone</span><span>Feed</span><span>TV control</span><span></span></div>
       ${[...cfg.zones.map((z) => ({ label: z.name, color: z.color, tvs: cfg.tvs.filter((t) => t.zone === z.id) })),
          { label: 'Unzoned', color: '#7e8490', tvs: cfg.tvs.filter((t) => !zoneOf(t.zone)) }]
@@ -1367,6 +1440,51 @@ document.addEventListener('click', async (e) => {
       else toast(`Send failed: ${(r.fail[0] || {}).err || 'unknown'}`, 'err');
       break;
     }
+
+    case 'audio-mute': {
+      const z = ((cfg.audio || {}).zones || []).find((x) => x.id === btn.dataset.id);
+      if (!z) break;
+      const muted = !z.muted;
+      const r = await api.audioMute({ zoneId: z.id, muted });
+      if (r.ok) {
+        await saveCfg({ audio: { ...cfg.audio, zones: cfg.audio.zones.map((x) => x.id === z.id ? { ...x, muted } : x) } });
+      } else {
+        toast(r.err === 'not configured' ? 'Set the BLU-100 IP and zone address first (Settings → Audio)' : `Speaker mute failed: ${r.err}`, 'warn');
+      }
+      break;
+    }
+    case 'audio-test': {
+      const ipEl = btn.parentElement.querySelector('input');
+      const ip = ((ipEl && ipEl.value) || (cfg.audio || {}).ip || '').trim();
+      if (!ip) { toast('Enter the BLU-100 IP first', 'warn'); break; }
+      const r = await api.diagTcp({ ip, port: 1023 });
+      toast(r.ok ? `BLU-100 answered in ${r.ms}ms — control port open` : `No answer on :1023 (${r.err})`, r.ok ? 'ok' : 'err');
+      break;
+    }
+    case 'az-add':
+      await saveCfg({ audio: { ...cfg.audio, zones: [...(cfg.audio.zones || []), { id: uid('az'), name: 'New zone', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false }] } });
+      break;
+    case 'az-remove':
+      await saveCfg({ audio: { ...cfg.audio, zones: (cfg.audio.zones || []).filter((z) => z.id !== btn.dataset.id) } });
+      break;
+
+    case 'tvscan': {
+      ui.tvscan = { running: true, found: null };
+      renderModal();
+      const r = await api.vizioScan();
+      ui.tvscan = { running: false, found: r.found };
+      toast(r.found.length ? `${r.found.length} SmartCast TV${r.found.length === 1 ? '' : 's'} on the network` : 'No SmartCast TVs found — are they on WiFi yet?', r.found.length ? 'ok' : 'warn');
+      renderModal();
+      break;
+    }
+    case 'tvscan-assign': {
+      const sel = btn.parentElement.querySelector('select');
+      const tvId = sel && sel.value;
+      if (!tvId) { toast('Pick which TV this is first', 'warn'); break; }
+      await saveCfg({ tvs: cfg.tvs.map((t) => t.id === tvId ? { ...t, ctl: null, tvIp: btn.dataset.ip, tvToken: null } : t) });
+      toast(`IP assigned — now press Pair on that TV's row`);
+      break;
+    }
     case 'vizio-unpair': {
       const tv = cfg.tvs.find((t) => t.id === btn.dataset.id);
       await api.vizioUnpair({ tvId: btn.dataset.id });
@@ -1543,6 +1661,19 @@ document.addEventListener('change', async (e) => {
     }
   } else if (bind === 'launchFullscreen') {
     await saveCfg({ launchFullscreen: el.checked });
+  } else if (bind === 'audio-enabled') {
+    await saveCfg({ audio: { ...cfg.audio, enabled: el.checked } });
+  } else if (bind === 'audio-ip') {
+    await saveCfg({ audio: { ...cfg.audio, ip: el.value.trim() } });
+  } else if (bind === 'az-name' || bind === 'az-addr' || bind === 'az-gain' || bind === 'az-mute') {
+    const zones = (cfg.audio.zones || []).map((z) => {
+      if (z.id !== el.dataset.id) return z;
+      if (bind === 'az-name') return { ...z, name: el.value.trim() || z.name };
+      if (bind === 'az-addr') return { ...z, addr: el.value.trim() };
+      if (bind === 'az-gain') return { ...z, gainParam: Number(el.value) || 0 };
+      return { ...z, muteParam: Number(el.value) || 0 };
+    });
+    await saveCfg({ audio: { ...cfg.audio, zones } });
   } else if (bind === 'prev-enabled') {
     await saveCfg({ preview: { ...cfg.preview, enabled: el.checked } });
   } else if (bind === 'prev-device') {
@@ -1565,6 +1696,30 @@ document.addEventListener('change', async (e) => {
   } else if (bind === 'pollSeconds') {
     await saveCfg({ pollSeconds: Number(el.value) || cfg.pollSeconds });
   }
+});
+
+// speaker sliders: live sends while dragging (throttled), persist on release
+const audThrottle = {};
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('[data-bind="audio-slider"]');
+  if (!el) return;
+  const id = el.dataset.id, pct = Number(el.value);
+  const row = el.closest('.aud-row');
+  const pctEl = row && row.querySelector('.aud-pct');
+  if (pctEl) pctEl.textContent = `${pct}%`;
+  const now = Date.now();
+  if (!audThrottle[id] || now - audThrottle[id] > 120) {
+    audThrottle[id] = now;
+    api.audioSet({ zoneId: id, pct });
+  }
+});
+document.addEventListener('change', async (e) => {
+  const el = e.target.closest('[data-bind="audio-slider"]');
+  if (!el) return;
+  const id = el.dataset.id, pct = Number(el.value);
+  const r = await api.audioSet({ zoneId: id, pct });
+  if (!r.ok && r.err !== 'not configured') toast(`Speaker volume failed: ${r.err}`, 'warn');
+  await saveCfg({ audio: { ...cfg.audio, zones: (cfg.audio.zones || []).map((z) => z.id === id ? { ...z, pct } : z) } });
 });
 
 document.addEventListener('keydown', async (e) => {
@@ -1628,7 +1783,7 @@ function sleepStatusText() {
     const st = t.boxId ? statuses[t.boxId] : null;
     if (st && st.online && st.mode === 0) {
       live++;
-      counts.set(String(st.chan), (counts.get(String(st.chan)) || 0) + 1);
+      if (st.chan) counts.set(String(st.chan), (counts.get(String(st.chan)) || 0) + 1);
     }
   }
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -1712,6 +1867,15 @@ setInterval(() => {
   tickClock();
   setInterval(tickClock, 10000);
 
+  if (q.get('audio') === '1') {
+    cfg.audio = {
+      enabled: true, ip: '10.56.0.50',
+      zones: [
+        { id: 'az1', name: 'Track speakers', addr: '0x100,0x3,0x152', gainParam: 0, muteParam: 1, pct: 62, muted: false },
+        { id: 'az2', name: 'Treadmill speakers', addr: '0x100,0x3,0x153', gainParam: 0, muteParam: 1, pct: 45, muted: true },
+      ],
+    };
+  }
   if (q.get('preview') === '1') {
     cfg.preview = { ...(cfg.preview || {}), enabled: true, boxId: (cfg.boxes[12] || cfg.boxes[0] || {}).id };
   }

@@ -84,6 +84,14 @@ function defaults() {
     itach: {
       commands: { volUp: '', volDown: '', muteToggle: '', powerOn: '', powerOff: '' },
     },
+    audio: {
+      enabled: false,
+      ip: '',
+      zones: [
+        { id: 'az1', name: 'Track speakers', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false },
+        { id: 'az2', name: 'Treadmill speakers', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false },
+      ],
+    },
     launchFullscreen: false,
     boxes: demoFeeds(),   // the receivers ("feeds")
     tvs: demoTvs(),       // the screens on the wall — what the dashboard shows
