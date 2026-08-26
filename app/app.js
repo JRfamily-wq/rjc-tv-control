@@ -23,6 +23,7 @@ const ui = {
   diag: { log: [], filter: 'all', info: null, pings: {}, tests: {}, com: null },
   openCards: new Set(),
   tvscan: null,
+  audioProbe: null,
 };
 
 // collapsed-by-default card for advanced/rarely-touched settings
@@ -816,6 +817,34 @@ function audioTab() {
       </div>`).join('')}
       <div style="margin-top:12px"><button class="btn outline" data-act="az-add">${I.plus} Add zone</button></div>
     </div>
+    <div class="card slim"><h3>${I.radar} Find controls automatically</h3>
+      <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:-2px 0 10px">
+        No design file needed: a <b>read-only probe</b> asks the processors which control objects exist.
+        Then <b>Nudge</b> a result (+3% for a second, then back) and listen for which speakers breathe —
+        that's your zone. Assign it and the slider goes live. Node IDs are prefilled from your rack.</p>
+      <div class="trow">
+        <input type="text" id="probeNodes" value="${esc(a.probeNodes || '0xC642, 0x75B0')}" title="Node IDs (comma separated)" style="width:160px;font-family:var(--mono)"/>
+        <input type="text" id="probeRange" value="0x100-0x2FF" title="Object range" style="width:110px;font-family:var(--mono)"/>
+        ${ui.audioProbe && ui.audioProbe.running
+          ? `<span class="scan-status"><span class="spinner"></span> <span id="probeStatus">probing&hellip;</span></span>`
+          : `<button class="mini" data-act="audio-probe">${I.radar} Probe (read-only)</button>`}
+      </div>
+      ${ui.audioProbe && ui.audioProbe.found ? (ui.audioProbe.found.length ? `
+      <div class="row-grid row-head" style="grid-template-columns:1.3fr 0.9fr auto auto"><span>Control found</span><span>Current value</span><span></span><span></span></div>
+      ${ui.audioProbe.found.map((f) => {
+        const addr = `0x${f.node.toString(16).toUpperCase()},0x${f.vd.toString(16)},0x${f.obj.toString(16).toUpperCase()}`;
+        const db = f.value / 10000;
+        const guess = db >= -90 && db <= 15 ? ` · &asymp;${db.toFixed(1)} dB` : '';
+        return `<div class="row-grid" style="grid-template-columns:1.3fr 0.9fr auto auto">
+          <span class="ip">${esc(addr)}</span>
+          <span class="tres">${esc(String(f.value))}${guess}</span>
+          <button class="mini" data-act="probe-nudge" data-addr="${esc(addr)}">Nudge</button>
+          <span class="pairbox"><select style="width:150px">
+            ${(a.zones || []).map((z) => `<option value="${esc(z.id)}">${esc(z.name)}</option>`).join('')}
+          </select><button class="mini" data-act="probe-use" data-addr="${esc(addr)}">Use</button></span>
+        </div>`;
+      }).join('')}` : `<p class="tres err" style="margin-top:8px">Nothing answered in that range — try 0x1-0xFF, or put the other processor's IP in the field above and probe again.</p>`) : ''}
+    </div>
     <div class="card slim guide"><h3>${I.clipboard} Getting the addresses (one laptop session)</h3>
       <ol>
         <li>Install HARMAN <b>Audio Architect</b> (free) on a laptop on the gym network.</li>
@@ -1468,6 +1497,38 @@ document.addEventListener('click', async (e) => {
       toast(r.ok ? `BLU-100 answered in ${r.ms}ms — control port open` : `No answer on :1023 (${r.err})`, r.ok ? 'ok' : 'err');
       break;
     }
+    case 'audio-probe': {
+      const nodesRaw = (($('#probeNodes') || {}).value || '').trim();
+      const rangeRaw = (($('#probeRange') || {}).value || '0x100-0x2FF').trim();
+      const nodes = nodesRaw.split(',').map((x) => parseInt(x.trim())).filter((n) => !Number.isNaN(n));
+      const m = rangeRaw.match(/^(0x[0-9a-f]+|\d+)\s*-\s*(0x[0-9a-f]+|\d+)$/i);
+      if (!nodes.length || !m) { toast('Node IDs like 0xC642 and a range like 0x100-0x2FF', 'warn'); break; }
+      const objFrom = parseInt(m[1]), objTo = parseInt(m[2]);
+      if (objTo < objFrom || objTo - objFrom > 4096) { toast('Range too large — keep it under 4096 objects', 'warn'); break; }
+      await saveCfg({ audio: { ...cfg.audio, probeNodes: nodesRaw } });
+      ui.audioProbe = { running: true, found: null };
+      renderModal();
+      const r = await api.audioProbe({ nodes, objFrom, objTo });
+      ui.audioProbe = { running: false, found: r.ok ? r.found : [] };
+      if (!r.ok) toast(`Probe failed: ${r.err}`, 'err');
+      else toast(r.found.length ? `${r.found.length} control${r.found.length === 1 ? '' : 's'} answered` : 'Nothing answered in that range', r.found.length ? 'ok' : 'warn');
+      renderModal();
+      break;
+    }
+    case 'probe-nudge': {
+      toast('Nudging +3% for a second — listen…');
+      const r = await api.audioNudge({ addr: btn.dataset.addr });
+      if (!r.ok) toast(`Nudge failed: ${r.err}`, 'err');
+      break;
+    }
+    case 'probe-use': {
+      const sel = btn.parentElement.querySelector('select');
+      const zoneId = sel && sel.value;
+      if (!zoneId) { toast('Pick a zone first', 'warn'); break; }
+      await saveCfg({ audio: { ...cfg.audio, zones: (cfg.audio.zones || []).map((z) => z.id === zoneId ? { ...z, addr: btn.dataset.addr, gainParam: 0, muteParam: 1 } : z) } });
+      toast('Address assigned — slider is live. Test gently.');
+      break;
+    }
     case 'az-add':
       await saveCfg({ audio: { ...cfg.audio, zones: [...(cfg.audio.zones || []), { id: uid('az'), name: 'New zone', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false }] } });
       break;
@@ -1862,6 +1923,10 @@ setInterval(() => {
     const el = document.querySelector('#scanStatus');
     if (el) el.textContent = `Scanning the network for receivers — ${p.done}/${p.total} addresses, ${p.found} found`;
   });
+  api.onAudioProbe((p) => {
+    const el = document.querySelector('#probeStatus');
+    if (el) el.textContent = `probing… ${p.done}/${p.total} · ${p.found} answered`;
+  });
   api.onLog((entry) => {
     ui.diag.log.push(entry);
     if (ui.diag.log.length > 600) ui.diag.log.shift();
@@ -1875,8 +1940,16 @@ setInterval(() => {
   setInterval(tickClock, 10000);
 
   if (q.get('audio') === '1') {
+    ui.audioProbe = {
+      running: false,
+      found: [
+        { node: 0xc642, vd: 3, obj: 0x11a, param: 0, value: -123000 },
+        { node: 0x75b0, vd: 3, obj: 0x152, param: 0, value: -64000 },
+        { node: 0x75b0, vd: 3, obj: 0x153, param: 0, value: 20000 },
+      ],
+    };
     cfg.audio = {
-      enabled: true, ip: '10.56.0.50',
+      enabled: true, ip: '10.13.0.34', probeNodes: '0xC642, 0x75B0',
       zones: [
         { id: 'az1', name: 'Track speakers', addr: '0x100,0x3,0x152', gainParam: 0, muteParam: 1, pct: 62, muted: false },
         { id: 'az2', name: 'Treadmill speakers', addr: '0x100,0x3,0x153', gainParam: 0, muteParam: 1, pct: 45, muted: true },

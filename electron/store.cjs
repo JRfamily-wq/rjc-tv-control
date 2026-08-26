@@ -87,6 +87,7 @@ function defaults() {
     audio: {
       enabled: false,
       ip: '',
+      probeNodes: '0xC642, 0x75B0',
       zones: [
         { id: 'az1', name: 'Track speakers', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false },
         { id: 'az2', name: 'Treadmill speakers', addr: '', gainParam: 0, muteParam: 1, pct: 50, muted: false },

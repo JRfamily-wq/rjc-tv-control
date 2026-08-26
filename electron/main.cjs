@@ -315,6 +315,32 @@ ipcMain.handle('audio:mute', async (_e, { zoneId, muted }) => {
   }
 });
 
+ipcMain.handle('audio:probe', async (_e, { nodes, objFrom, objTo }) => {
+  const cfg = store.load();
+  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'set the processor IP first' };
+  try {
+    log('info', 'audio', `Probe started: nodes ${nodes.map((n) => '0x' + n.toString(16).toUpperCase()).join(', ')}, objects 0x${objFrom.toString(16)}–0x${objTo.toString(16)} (read-only)`);
+    const found = await bss.probe(cfg.audio.ip, nodes, objFrom, objTo, 0, (p) => broadcast('audioprobe', p));
+    log('info', 'audio', `Probe done: ${found.length} responding control${found.length === 1 ? '' : 's'}`);
+    return { ok: true, found };
+  } catch (e) {
+    log('warn', 'audio', `Probe failed: ${e.message}`);
+    return { ok: false, err: String(e.message || e) };
+  }
+});
+
+ipcMain.handle('audio:nudge', async (_e, { addr }) => {
+  const cfg = store.load();
+  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
+  try {
+    await bss.bump(cfg.audio.ip, addr, 0, 3);
+    await new Promise((r) => setTimeout(r, 1200));
+    await bss.bump(cfg.audio.ip, addr, 0, -3);
+    log('info', 'audio', `Nudged ${addr} (+3% / −3%)`);
+    return { ok: true };
+  } catch (e) { return { ok: false, err: String(e.message || e) }; }
+});
+
 // ---------- SmartCast TV discovery (port 7345 sweep) ----------
 ipcMain.handle('vizio:scan', async () => {
   const os2 = require('os');

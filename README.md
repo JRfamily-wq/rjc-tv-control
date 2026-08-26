@@ -12,7 +12,7 @@ Touchscreen control panel for the R.J. Corman fitness center TV wall — an Elec
   - **IP** — Vizio SmartCast pairing (V505M-K09 and other Walmart SmartCast sets)
   - **COM** — RS-232 through the legacy serial adapters via USB dongles (configurable hex/text command set)
   - **IR** — Global Caché iTach IP2IR blaster (`sendir` codes)
-- **Kiosk features**: staff code (1972 by default) gating Settings, fullscreen exit, and optionally all channel changes (2-minute grace); always-dark sleep screen with a drifting clock (burn-in protection) that re-locks Settings when it engages; light/dark themes; frameless window.
+- **Kiosk features**: a configurable staff code gating Settings, fullscreen exit, and optionally all channel changes (2-minute grace); always-dark sleep screen with a drifting clock (burn-in protection) that re-locks Settings when it engages; light/dark themes; frameless window.
 - **Diagnostics**: live event log (copy/save/export), per-feed health + ping, connection testers for all three transports, COM-port discovery, config export/import for cloning the second touchscreen.
 - **Live corner preview** (optional): real video from one feed via a USB HDMI capture stick.
 
