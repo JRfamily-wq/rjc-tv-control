@@ -827,7 +827,8 @@ function audioTab() {
         <input type="text" id="probeRange" value="${esc((ui.audioProbe && ui.audioProbe.range) || '0x1-0xFFF')}" title="Object range" style="width:110px;font-family:var(--mono)"/>
         ${ui.audioProbe && ui.audioProbe.running
           ? `<span class="scan-status"><span class="spinner"></span> <span id="probeStatus">probing&hellip;</span></span>`
-          : `<button class="mini" data-act="audio-probe">${I.radar} Probe (read-only)</button>`}
+          : `<button class="mini" data-act="audio-probe">${I.radar} Probe (read-only)</button>
+             <button class="mini" data-act="audio-hqprobe" title="Native HiQnet protocol on :3804 — the language Audio Architect and the AMX use. Try this when the DI probe reports silence.">HiQnet :3804</button>`}
       </div>
       ${ui.audioProbe && ui.audioProbe.found ? (ui.audioProbe.found.length ? `
       <div class="row-grid row-head" style="grid-template-columns:1.3fr 0.9fr auto auto"><span>Control found</span><span>Current value</span><span></span><span></span></div>
@@ -1517,6 +1518,25 @@ document.addEventListener('click', async (e) => {
       renderModal();
       break;
     }
+    case 'audio-hqprobe': {
+      const nodesRaw = (($('#probeNodes') || {}).value || '').trim();
+      const rangeRaw = (($('#probeRange') || {}).value || '0x1-0xFFF').trim();
+      const nodes = nodesRaw.split(',').map((x) => parseInt(x.trim())).filter((n) => !Number.isNaN(n));
+      const m = rangeRaw.match(/^(0x[0-9a-f]+|\d+)\s*-\s*(0x[0-9a-f]+|\d+)$/i);
+      if (!nodes.length || !m) { toast('Node IDs like 0x75B0 and a range like 0x1-0xFFF', 'warn'); break; }
+      const objFrom = parseInt(m[1]), objTo = parseInt(m[2]);
+      if (objTo < objFrom || objTo - objFrom > 8192) { toast('Range too large — keep it under 8192 objects', 'warn'); break; }
+      await saveCfg({ audio: { ...cfg.audio, probeNodes: nodesRaw } });
+      ui.audioProbe = { running: true, found: null, range: rangeRaw, via: 'hiqnet' };
+      renderModal();
+      const r = await api.audioHqProbe({ nodes, objFrom, objTo });
+      const nextRange = `0x${(objTo + 1).toString(16).toUpperCase()}-0x${(objTo + 1 + (objTo - objFrom)).toString(16).toUpperCase()}`;
+      ui.audioProbe = { running: false, found: r.ok ? r.found : [], diag: r.diag, range: rangeRaw, nextRange, via: 'hiqnet' };
+      if (!r.ok) toast(`HiQnet probe failed: ${r.err}`, 'err');
+      else toast(r.found.length ? `${r.found.length} live control${r.found.length === 1 ? '' : 's'} via HiQnet` : 'Nothing via HiQnet — see the diagnosis below', r.found.length ? 'ok' : 'warn', 5000);
+      renderModal();
+      break;
+    }
     case 'probe-dip': {
       toast('Dipping −6 dB for 2.5 seconds — listen…');
       const r = await api.audioDip({ addr: btn.dataset.addr });
@@ -1537,8 +1557,9 @@ document.addEventListener('click', async (e) => {
       const sel = btn.parentElement.querySelector('select');
       const zoneId = sel && sel.value;
       if (!zoneId) { toast('Pick a zone first', 'warn'); break; }
-      await saveCfg({ audio: { ...cfg.audio, zones: (cfg.audio.zones || []).map((z) => z.id === zoneId ? { ...z, addr: btn.dataset.addr, gainParam: 0, muteParam: 1 } : z) } });
-      toast('Address assigned — slider is live. Test gently.');
+      const viaHq = ui.audioProbe && ui.audioProbe.via === 'hiqnet';
+      await saveCfg({ audio: { ...cfg.audio, protocol: viaHq ? 'hiqnet' : 'di', zones: (cfg.audio.zones || []).map((z) => z.id === zoneId ? { ...z, addr: btn.dataset.addr, gainParam: 0, muteParam: 1 } : z) } });
+      toast(`Address assigned via ${viaHq ? 'HiQnet' : 'DI'} — slider is live. Test gently.`);
       break;
     }
     case 'az-add':
@@ -2008,8 +2029,13 @@ setInterval(() => {
 function probeDiagText(ap) {
   const d = (ap && ap.diag) || null;
   if (!d) return 'Nothing answered in that range.';
+  if (ap.via === 'hiqnet') {
+    if (d.errors > 0) return `The processor heard every query and answered ${d.errors} explicit errors - these object numbers don't exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
+    if (d.info > 0 || d.bytes > 0) return `The processor replied (${d.bytes} bytes, first: ${d.rawHex}) but nothing parsed as live values. Photograph the Diagnostics log and report this.`;
+    return 'Port 3804 sent nothing back either. Photograph the Diagnostics log and report this.';
+  }
   if (d.naks > 0) return `The processor REJECTED ${d.naks} of our queries (NAK) - it speaks a different protocol dialect. Stop probing and report this.`;
   if (d.acks > 0) return `The processor ACCEPTED all ${d.acks} queries but none of these object numbers exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
   if (d.bytes > 0) return `The port sent ${d.bytes} bytes of non-DI traffic back (starts: ${d.rawHex}). Something other than Soundweb control is on :1023 - report this.`;
-  return 'The port accepted the connection but sent NOTHING back - this firmware likely has network DI disabled. Plan B is the serial port on the back of the BLU-100.';
+  return 'The port accepted the connection but sent NOTHING back - network DI is disabled in this firmware. Use the HiQnet :3804 button instead - that is the protocol the AMX itself uses.';
 }

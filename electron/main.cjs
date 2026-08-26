@@ -11,6 +11,9 @@ const vizio = require('./vizio.cjs');
 const serial = require('./serial.cjs');
 const itach = require('./itach.cjs');
 const bss = require('./bss.cjs');
+const hq = require('./hiqnet.cjs');
+// audio driver: legacy DI (:1023) or native HiQnet (:3804), per config
+const audioDrv = (cfg) => ((cfg.audio || {}).protocol === 'hiqnet' ? hq : bss);
 
 const argOf = (k) => {
   const a = process.argv.find((x) => x.startsWith(`--${k}=`));
@@ -293,7 +296,7 @@ ipcMain.handle('audio:set', async (_e, { zoneId, pct }) => {
   const z = audioZone(zoneId);
   if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
   try {
-    await bss.setPercent(cfg.audio.ip, z.addr, z.gainParam ?? 0, pct);
+    await audioDrv(cfg).setPercent(cfg.audio.ip, z.addr, z.gainParam ?? 0, pct);
     return { ok: true };
   } catch (e) {
     log('warn', 'audio', `Volume set failed for ${z.name}: ${e.message}`);
@@ -306,7 +309,7 @@ ipcMain.handle('audio:mute', async (_e, { zoneId, muted }) => {
   const z = audioZone(zoneId);
   if (!cfg.audio || !cfg.audio.ip || !z || !z.addr) return { ok: false, err: 'not configured' };
   try {
-    await bss.setValue(cfg.audio.ip, z.addr, z.muteParam ?? 1, muted ? 1 : 0);
+    await audioDrv(cfg).setValue(cfg.audio.ip, z.addr, z.muteParam ?? 1, muted ? 1 : 0);
     log('info', 'audio', `${z.name} ${muted ? 'muted' : 'unmuted'}`);
     return { ok: true };
   } catch (e) {
@@ -334,20 +337,42 @@ ipcMain.handle('audio:probe', async (_e, { nodes, objFrom, objTo }) => {
   }
 });
 
+// Native HiQnet (:3804) probe — the protocol AA/AMX use. Every query is
+// answered (INFO with live values, or an explicit error), so results are decisive.
+ipcMain.handle('audio:hqprobe', async (_e, { nodes, objFrom, objTo }) => {
+  const cfg = store.load();
+  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'set the processor IP first' };
+  try {
+    log('info', 'audio', `HiQnet probe started on :3804 — nodes ${nodes.map((n) => '0x' + n.toString(16).toUpperCase()).join(', ')}, objects 0x${objFrom.toString(16)}–0x${objTo.toString(16)}`);
+    const { found, diag } = await hq.probe(cfg.audio.ip, nodes, objFrom, objTo, [0, 1], (p) => broadcast('audioprobe', p));
+    const verdict = found.length ? `${found.length} live control${found.length === 1 ? '' : 's'} (session ${diag.session == null ? 'none' : diag.session})`
+      : diag.errors > 0 ? `0 controls — device answered ${diag.errors} explicit errors (heard us; objects not here)`
+      : diag.info > 0 ? `0 controls — ${diag.info} info replies but none parseable (first bytes: ${diag.rawHex})`
+      : diag.bytes > 0 ? `0 controls — unrecognized traffic (first bytes: ${diag.rawHex})`
+      : `0 controls — :3804 silent too`;
+    log('info', 'audio', `HiQnet probe done: ${verdict}`);
+    return { ok: true, found, diag, via: 'hiqnet' };
+  } catch (e) {
+    log('warn', 'audio', `Probe failed: ${e.message}`);
+    return { ok: false, err: String(e.message || e) };
+  }
+});
+
 // Dip: read → set −6 dB → verify mid-dip → restore exact value.
 // Distinguishes "not audible / wrong fader" from "device ignores writes".
 ipcMain.handle('audio:dip', async (_e, { addr }) => {
   const cfg = store.load();
   if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
   try {
+    const drv = audioDrv(cfg);
     const ip = cfg.audio.ip;
-    const v0 = await bss.readValue(ip, addr, 0);
+    const v0 = await drv.readValue(ip, addr, 0);
     if (v0 === null) return { ok: false, err: 'object did not answer a read' };
-    await bss.setValue(ip, addr, 0, v0 - 60000);
-    await bss.sleep(600);
-    const mid = await bss.readValue(ip, addr, 0);
-    await bss.sleep(1900);
-    await bss.setValue(ip, addr, 0, v0);
+    await drv.setValue(ip, addr, 0, v0 - 60000);
+    await drv.sleep(600);
+    const mid = await drv.readValue(ip, addr, 0);
+    await drv.sleep(1900);
+    await drv.setValue(ip, addr, 0, v0);
     const wrote = mid !== null && Math.abs(mid - (v0 - 60000)) < 5000;
     log(wrote ? 'info' : 'warn', 'audio', `Dip ${addr}: ${v0} → ${mid === null ? 'no read-back' : mid} → restored (${wrote ? 'write CONFIRMED' : 'write NOT taken'})`);
     return { ok: true, before: v0, wrote };
@@ -359,12 +384,13 @@ ipcMain.handle('audio:blink', async (_e, { addr }) => {
   const cfg = store.load();
   if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
   try {
+    const drv = audioDrv(cfg);
     const ip = cfg.audio.ip;
-    const m0 = await bss.readValue(ip, addr, 1);
+    const m0 = await drv.readValue(ip, addr, 1);
     const target = m0 === 1 ? 0 : 1;
-    await bss.setValue(ip, addr, 1, target);
-    await bss.sleep(1500);
-    await bss.setValue(ip, addr, 1, m0 === null ? 0 : m0);
+    await drv.setValue(ip, addr, 1, target);
+    await drv.sleep(1500);
+    await drv.setValue(ip, addr, 1, m0 === null ? 0 : m0);
     log('info', 'audio', `Mute blink ${addr} (was ${m0 === null ? 'unreadable' : m0})`);
     return { ok: true, hadRead: m0 !== null };
   } catch (e) { return { ok: false, err: String(e.message || e) }; }

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('rjc', {
   audioSet: (args) => ipcRenderer.invoke('audio:set', args),
   audioMute: (args) => ipcRenderer.invoke('audio:mute', args),
   audioProbe: (args) => ipcRenderer.invoke('audio:probe', args),
+  audioHqProbe: (args) => ipcRenderer.invoke('audio:hqprobe', args),
   audioDip: (args) => ipcRenderer.invoke('audio:dip', args),
   audioBlink: (args) => ipcRenderer.invoke('audio:blink', args),
   onAudioProbe: (cb) => ipcRenderer.on('audioprobe', (_e, p) => cb(p)),
