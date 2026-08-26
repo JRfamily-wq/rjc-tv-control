@@ -7,6 +7,7 @@
 // so probes are decisive, unlike DI's silence.
 const net = require('net');
 const os = require('os');
+const dgram = require('dgram');
 
 const MSG = {
   DISCO: 0x0000, HELLO: 0x0008,
@@ -99,32 +100,67 @@ function getConn(ip) {
     sock.on('timeout', () => { sock.destroy(); reject(new Error('timeout connecting :3804')); });
     sock.on('error', (e) => { if (conns.get(ip) === c2) conns.delete(ip); reject(e); });
     sock.on('close', () => { if (conns.get(ip) === c2) conns.delete(ip); });
-    sock.on('data', (chunk) => {
-      c2.stats.bytes += chunk.length;
-      if (c2.stats.raw.length < 64) for (const b of chunk.slice(0, 64 - c2.stats.raw.length)) c2.stats.raw.push(b);
-      c2.buf = Buffer.concat([c2.buf, chunk]);
-      while (c2.buf.length >= 25) {
-        if (c2.buf[0] !== 0x02) { c2.buf = c2.buf.slice(1); continue; }
-        const len = c2.buf.readUInt32BE(2);
-        if (len < 25 || len > 0x40000) { c2.buf = c2.buf.slice(1); continue; }
-        if (c2.buf.length < len) break;
-        const msg = decodeMsg(c2.buf.slice(0, len));
-        c2.buf = c2.buf.slice(len);
-        if (msg.flags & FLAG.ERROR) c2.stats.errors++;
-        else if (msg.flags & FLAG.INFO) c2.stats.info++;
-        else if (msg.flags & FLAG.ACK) c2.stats.acks++;
-        for (const fn of c2.listeners) { try { fn(msg); } catch { /* noop */ } }
-      }
-    });
+    sock.on('data', (chunk) => ingest(c2, chunk));
   });
+}
+
+// shared byte-stream/datagram parser — TCP chunks and UDP datagrams both land here
+function ingest(c, chunk) {
+  c.stats.bytes += chunk.length;
+  if (c.stats.raw.length < 64) for (const b of chunk.slice(0, 64 - c.stats.raw.length)) c.stats.raw.push(b);
+  c.buf = Buffer.concat([c.buf, chunk]);
+  while (c.buf.length >= 25) {
+    if (c.buf[0] !== 0x02) { c.buf = c.buf.slice(1); continue; }
+    const len = c.buf.readUInt32BE(2);
+    if (len < 25 || len > 0x40000) { c.buf = c.buf.slice(1); continue; }
+    if (c.buf.length < len) break;
+    const msg = decodeMsg(c.buf.slice(0, len));
+    c.buf = c.buf.slice(len);
+    if (msg.flags & FLAG.ERROR) c.stats.errors++;
+    else if (msg.flags & FLAG.INFO) c.stats.info++;
+    else if (msg.flags & FLAG.ACK) c.stats.acks++;
+    for (const fn of c.listeners) { try { fn(msg); } catch { /* noop */ } }
+  }
 }
 
 async function sendMsg(ip, dstDev, dstVd, dstObj, msgId, flags, payload) {
   const c = await getConn(ip);
   const seq = c.seq = (c.seq + 1) & 0xffff;
   const h = header(dstDev, dstVd, dstObj, msgId, flags, payload.length, seq, c.session);
-  await new Promise((res, rej) => c.sock.write(Buffer.concat([h, payload]), (e) => (e ? rej(e) : res())));
+  const buf = Buffer.concat([h, payload]);
+  if (c.udp) {
+    await new Promise((res, rej) => c.udp.send(buf, 3804, ip, (e) => (e ? rej(e) : res())));
+  } else {
+    await new Promise((res, rej) => c.sock.write(buf, (e) => (e ? rej(e) : res())));
+  }
   return c;
+}
+
+// Some London firmware only registers third parties that introduce themselves the
+// way Audio Architect does: DiscoInfo over UDP :3804 (broadcast + unicast). If the
+// device answers there, the whole conversation moves to UDP datagrams.
+function tryUdp(ip, c) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    let u;
+    try { u = dgram.createSocket('udp4'); } catch { return finish(null); }
+    u.on('error', () => { try { u.close(); } catch { /* noop */ } finish(null); });
+    u.on('message', (msg, rinfo) => {
+      if (rinfo.address !== ip) return;
+      ingest(c, msg);
+      finish(u);
+    });
+    u.bind(0, () => {
+      try { u.setBroadcast(true); } catch { /* noop */ }
+      const seq = c.seq = (c.seq + 1) & 0xffff;
+      const pay = discoPayload();
+      const buf = Buffer.concat([header(0xffff, 0, 0, MSG.DISCO, 0, pay.length, seq, null), pay]);
+      u.send(buf, 3804, ip, () => { /* noop */ });
+      u.send(buf, 3804, '255.255.255.255', () => { /* noop */ });
+    });
+    setTimeout(() => { if (!settled) { try { u.close(); } catch { /* noop */ } finish(null); } }, 2000);
+  });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -187,7 +223,16 @@ async function ensureSession(ip, node) {
   c.helloTried = true;
   try {
     await sendMsg(ip, 0xffff, 0, 0, MSG.DISCO, 0, discoPayload());
-    const disco = await waitFor(c, (m) => m.msgId === MSG.DISCO, 1500);
+    let disco = await waitFor(c, (m) => m.msgId === MSG.DISCO, 1500);
+    if (!disco) {
+      // TCP stranger ignored — introduce ourselves over UDP like AA does
+      const waiter = waitFor(c, (m) => m.msgId === MSG.DISCO, 2200);
+      const u = await tryUdp(ip, c);
+      if (u) { c.udp = u; c.transport = 'udp'; }
+      disco = await waiter;
+    } else {
+      c.transport = 'tcp';
+    }
     if (disco) c.deviceDev = disco.srcDev;
     const sess = 1 + Math.floor(0xfff0 * ((Date.now() % 10000) / 10000));
     const pay = Buffer.alloc(4);
@@ -278,7 +323,7 @@ async function probe(ip, nodes, objFrom, objTo, svIds, onProgress) {
   }
   const rawHex = c.stats.raw.map((b) => b.toString(16).padStart(2, '0')).join(' ');
   for (const f of found.values()) dtCache.set(`${ip}/${f.node}/${f.vd}/${f.obj}/${f.param}`, f.dt);
-  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev } };
+  return { found: [...found.values()], diag: { info: c.stats.info, errors: c.stats.errors, acks: c.stats.acks, bytes: c.stats.bytes, rawHex, session: c.session, deviceDev: c.deviceDev == null ? null : c.deviceDev, transport: c.transport || 'none' } };
 }
 
 module.exports = { probe, readValue, setValue, setPercent, getParams, sleep };

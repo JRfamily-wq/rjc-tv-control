@@ -10,21 +10,24 @@ const DEFAULT_ZONES = [
   { id: 'tread', name: 'Treadmills', color: '#3b82f6' },
 ];
 
-// The gym's real RF lineup (major.minor), exactly as posted.
+// The gym's wall RF lineup (what TVs display, made by the ZeeVee modulators)
+// paired with the DirecTV satellite channel each receiver must actually tune —
+// receivers have no off-air tuner, so tuning "11.1" fails with SHEF 501.
+// RJC is the house channel (Zvp810 HDMI feed): no receiver can tune it.
 const DEFAULT_FAVORITES = [
-  { name: 'RJC',      chan: '2.1' },
-  { name: 'WLEX18',   chan: '11.1' },
-  { name: 'WKYT 27',  chan: '12.1' },
-  { name: 'WTVQ',     chan: '13.1' },
-  { name: 'WDKY 36',  chan: '14.1' },
-  { name: 'CNN',      chan: '15.1' },
-  { name: 'HLN',      chan: '16.1' },
-  { name: 'FOX',      chan: '17.1' },
-  { name: 'TWC',      chan: '18.1' },
-  { name: 'E!',       chan: '19.1' },
-  { name: 'ESPN',     chan: '20.1' },
-  { name: 'CMT',      chan: '21.1' },
-  { name: 'HIST',     chan: '22.1' },
+  { name: 'RJC',      chan: '2.1',  house: true },
+  { name: 'WLEX18',   chan: '11.1', sat: '18' },
+  { name: 'WKYT 27',  chan: '12.1', sat: '27' },
+  { name: 'WTVQ',     chan: '13.1', sat: '36' },
+  { name: 'WDKY 36',  chan: '14.1', sat: '56' },
+  { name: 'CNN',      chan: '15.1', sat: '202' },
+  { name: 'HLN',      chan: '16.1', sat: '204' },
+  { name: 'FOX',      chan: '17.1', sat: '360' },
+  { name: 'TWC',      chan: '18.1', sat: '362' },
+  { name: 'E!',       chan: '19.1', sat: '236' },
+  { name: 'ESPN',     chan: '20.1', sat: '206' },
+  { name: 'CMT',      chan: '21.1', sat: '235' },
+  { name: 'HIST',     chan: '22.1', sat: '269' },
 ];
 
 const DEFAULT_PRESETS = [
@@ -112,6 +115,15 @@ function load() {
     const raw = JSON.parse(fs.readFileSync(file(), 'utf8').replace(/^﻿/, ''));
     // Schema 1 (pre TVs/feeds split, numeric channels) — rebuild from defaults.
     cfg = raw.schema === SCHEMA ? Object.assign(defaults(), raw) : defaults();
+    // soft-migrate stored favorites: graft sat numbers / house flags without a reset
+    if (Array.isArray(cfg.favorites)) {
+      cfg.favorites = cfg.favorites.map((f) => {
+        if (f.sat !== undefined || f.house) return f;
+        const d = DEFAULT_FAVORITES.find((x) => String(x.chan) === String(f.chan));
+        return d ? { ...f, ...(d.sat ? { sat: d.sat } : {}), ...(d.house ? { house: true } : {}) } : f;
+      });
+    }
+    if (cfg.identifyChannel === '18.1') cfg.identifyChannel = '362'; // wall number → real sat channel
     if (raw.schema !== SCHEMA) save();
   } catch {
     cfg = defaults();

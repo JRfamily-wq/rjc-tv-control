@@ -345,12 +345,12 @@ ipcMain.handle('audio:hqprobe', async (_e, { nodes, objFrom, objTo }) => {
   try {
     log('info', 'audio', `HiQnet probe started on :3804 — nodes ${nodes.map((n) => '0x' + n.toString(16).toUpperCase()).join(', ')}, objects 0x${objFrom.toString(16)}–0x${objTo.toString(16)}`);
     const { found, diag } = await hq.probe(cfg.audio.ip, nodes, objFrom, objTo, [0, 1], (p) => broadcast('audioprobe', p));
-    const verdict = found.length ? `${found.length} live control${found.length === 1 ? '' : 's'} (session ${diag.session == null ? 'none' : diag.session})`
+    const verdict = found.length ? `${found.length} live control${found.length === 1 ? '' : 's'} (via ${diag.transport}, session ${diag.session == null ? 'none' : diag.session})`
       : diag.errors > 0 ? `0 controls — device answered ${diag.errors} explicit errors (heard us; objects not here)`
       : diag.info > 0 ? `0 controls — ${diag.info} info replies but none parseable (first bytes: ${diag.rawHex})`
       : diag.bytes > 0 ? `0 controls — unrecognized traffic (first bytes: ${diag.rawHex})`
-      : diag.deviceDev != null ? `0 controls — device 0x${diag.deviceDev.toString(16).toUpperCase()} answered the login but ignored the queries`
-      : `0 controls — :3804 silent (no DiscoInfo login reply either)`;
+      : diag.deviceDev != null ? `0 controls — device 0x${diag.deviceDev.toString(16).toUpperCase()} answered the login (via ${diag.transport}) but ignored the queries`
+      : `0 controls — :3804 silent on TCP and UDP (no DiscoInfo login reply either way)`;
     log('info', 'audio', `HiQnet probe done: ${verdict}`);
     return { ok: true, found, diag, via: 'hiqnet' };
   } catch (e) {

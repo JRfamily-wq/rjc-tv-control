@@ -141,10 +141,12 @@ const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const zoneOf = (id) => cfg.zones.find((z) => z.id === id) || null;
 const feedOf = (id) => cfg.boxes.find((b) => b.id === id) || null;
-const favName = (chan) => {
-  const f = cfg.favorites.find((x) => String(x.chan) === String(chan));
-  return f ? f.name : null;
-};
+// favorites carry TWO numbers: chan = wall RF (what TVs display), sat = the
+// DirecTV channel the receiver must actually tune. Look up by either.
+const favByAny = (chan) => cfg.favorites.find((x) => String(x.chan) === String(chan) || (x.sat != null && String(x.sat) === String(chan))) || null;
+const favName = (chan) => { const f = favByAny(chan); return f ? f.name : null; };
+const wallOf = (chan) => { const f = favByAny(chan); return f ? String(f.chan) : String(chan); };
+const satOf = (chan) => { const f = favByAny(chan); return f && f.sat != null ? String(f.sat) : String(chan); };
 const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 8);
 const CHAN_RE = /^\d{1,3}(\.\d{1,2})?$/;
 
@@ -258,8 +260,9 @@ function applyPreset(preset) {
   for (const f of cfg.boxes) {
     const chan = preset.assignments[feedZone(f)];
     if (!chan) continue;
-    if (!jobs.has(chan)) jobs.set(chan, []);
-    jobs.get(chan).push(f.id);
+    const sat = satOf(chan); // stored scenes may carry wall numbers — tune the sat channel
+    if (!jobs.has(sat)) jobs.set(sat, []);
+    jobs.get(sat).push(f.id);
   }
   let tvCount = 0;
   for (const [chan, feedIds] of jobs) {
@@ -337,7 +340,8 @@ function renderMix() {
     const eff = effChanOf(f);
     if (!eff.chan) continue;
     if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
-    counts.set(eff.chan, (counts.get(eff.chan) || 0) + Math.max(1, feedTvs(f.id).length));
+    const key = wallOf(eff.chan);
+    counts.set(key, (counts.get(key) || 0) + Math.max(1, feedTvs(f.id).length));
   }
   const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   const total = entries.reduce((s, [, n]) => s + n, 0);
@@ -458,7 +462,8 @@ function renderGrid() {
     if (!eff.chan) continue;
     if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
     const w = Math.max(1, feedTvs(f.id).length);
-    weights.set(String(eff.chan), (weights.get(String(eff.chan)) || 0) + w);
+    const key = wallOf(eff.chan); // receivers report sat numbers — fold onto the wall lineup
+    weights.set(key, (weights.get(key) || 0) + w);
     liveWeight += w;
   }
   const top = [...weights.entries()].sort((a, b) => b[1] - a[1])[0];
@@ -466,17 +471,19 @@ function renderGrid() {
   const tiles = (cfg.favorites || []).map((f) => {
     const on = activeChan != null && String(f.chan) === String(activeChan);
     const n = weights.get(String(f.chan)) || 0;
-    return `<button class="cchan ${on ? 'on' : ''}" data-act="hero-chan" data-chan="${esc(f.chan)}" style="--acc:${acc(f.chan)}" title="Send every TV to ${esc(f.name)}">
+    const tune = f.house ? '' : String(f.sat != null ? f.sat : f.chan);
+    return `<button class="cchan ${on ? 'on' : ''} ${f.house ? 'house' : ''}" data-act="hero-chan" data-chan="${esc(tune)}" data-name="${esc(f.name)}" style="--acc:${acc(f.chan)}" title="${f.house ? 'House channel — plays on wall CH 2.1 straight from the building feed' : `Send every TV to ${esc(f.name)}`}">
       ${chanLogo(f.chan, f.name)}
-      <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${n ? `<span class="cc-live"><i></i>${n} TV${n === 1 ? '' : 's'}</span>` : ''}</span>
+      <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>${n} TV${n === 1 ? '' : 's'}</span>` : ''}</span>
     </button>`;
   }).join('');
   const pills = shown.map((f) => {
     const eff = effChanOf(f);
     const st = eff.st;
     const cls = st && !st.online ? 'off' : st && st.online && st.mode === 1 ? 'stby' : '';
+    const disp = eff.chan ? (favName(eff.chan) || `CH ${wallOf(eff.chan)}`) : '';
     return `<button class="fpill ${cls}" data-act="feed-pill" data-id="${esc(f.id)}" title="Tune just this group">
-      <i class="dot"></i>${esc(f.name)}${eff.chan ? `<b>${esc(String(eff.chan))}</b>` : ''}</button>`;
+      <i class="dot"></i>${esc(f.name)}${disp ? `<b>${esc(disp)}</b>` : ''}</button>`;
   }).join('');
   grid.innerHTML = `
     <div class="hero-grid">${tiles}</div>
@@ -671,8 +678,8 @@ function pickerHtml() {
         <div class="sheet-body">
           <div class="picker">
             <div class="fav-grid">
-              ${cfg.favorites.map((f) => `
-                <button class="fav-btn ${current === String(f.chan) ? 'current' : ''}" data-act="fav" data-chan="${esc(f.chan)}" style="--acc:${acc(f.chan)}">
+              ${cfg.favorites.filter((f) => !f.house).map((f) => `
+                <button class="fav-btn ${current != null && (current === String(f.chan) || (f.sat != null && current === String(f.sat))) ? 'current' : ''}" data-act="fav" data-chan="${esc(f.sat != null ? f.sat : f.chan)}" style="--acc:${acc(f.chan)}">
                   <span class="cs">${esc(f.name)}</span><span class="num">${esc(f.chan)}</span>
                 </button>`).join('')}
             </div>
@@ -1314,6 +1321,10 @@ document.addEventListener('click', async (e) => {
       break;
     case 'hero-chan': {
       const chan = btn.dataset.chan;
+      if (!chan) { // house channel — nothing to tune, it's the building's own feed
+        toast(`${btn.dataset.name || 'RJC'} plays on wall CH 2.1 straight from the building feed — TVs on 2.1 always show it`, 'warn', 4200);
+        break;
+      }
       const feeds = shownFeeds();
       if (!feeds.length) { toast('No feeds configured yet', 'warn'); break; }
       const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
