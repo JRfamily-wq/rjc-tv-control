@@ -350,7 +350,7 @@ ipcMain.handle('audio:hqprobe', async (_e, { nodes, objFrom, objTo }) => {
       : diag.info > 0 ? `0 controls — ${diag.info} info replies but none parseable (first bytes: ${diag.rawHex})`
       : diag.bytes > 0 ? `0 controls — unrecognized traffic (first bytes: ${diag.rawHex})`
       : diag.deviceDev != null ? `0 controls — device 0x${diag.deviceDev.toString(16).toUpperCase()} answered the login (via ${diag.transport}) but ignored the queries`
-      : `0 controls — :3804 silent on TCP and UDP (no DiscoInfo login reply either way)`;
+      : `0 controls — :3804 silent on TCP and UDP${diag.udpPort === 3804 ? ' (we DID own udp/3804 — close Audio Architect/NetSetter and check the Windows Firewall allow for this app)' : ' (could not claim udp/3804 — close Audio Architect/NetSetter and probe again)'}`;
     log('info', 'audio', `HiQnet probe done: ${verdict}`);
     return { ok: true, found, diag, via: 'hiqnet' };
   } catch (e) {
