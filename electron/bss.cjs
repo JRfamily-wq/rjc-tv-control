@@ -44,18 +44,32 @@ const frame = (type, addrStr, paramId, value32) => frameBytes(type, parseAddr(ad
 // incoming frame parser — devices answer subscriptions with SET_VALUE frames
 let onFrame = null;
 
+// wire-level diagnostics: DI devices ACK (0x06) or NAK (0x15) every message
+// they receive, as bare bytes between frames. Counting them separates
+// "queries accepted, objects don't exist" from "queries rejected" from
+// "port open but nobody speaking DI".
+const stats = { acks: 0, naks: 0, frames: 0, bytes: 0, raw: [] };
+function resetStats() { stats.acks = 0; stats.naks = 0; stats.frames = 0; stats.bytes = 0; stats.raw = []; }
+
 function attachParser(s) {
   let buf = [], esc = false, inFrame = false;
   s.on('data', (chunk) => {
+    stats.bytes += chunk.length;
+    if (stats.raw.length < 48) for (const b of chunk.slice(0, 48 - stats.raw.length)) stats.raw.push(b);
     for (const byte of chunk) {
       if (byte === 0x02) { inFrame = true; buf = []; esc = false; continue; }
-      if (!inFrame) continue;
+      if (!inFrame) {
+        if (byte === 0x06) stats.acks++;
+        else if (byte === 0x15) stats.naks++;
+        continue;
+      }
       if (byte === 0x03) {
         inFrame = false;
         if (buf.length >= 14) {
           const body = buf.slice(0, -1), ck = buf[buf.length - 1];
           let x = 0;
           for (const b of body) x ^= b;
+          if (x === ck) stats.frames++;
           if (x === ck && onFrame) {
             onFrame({
               type: body[0],
@@ -112,38 +126,47 @@ const bump = (ip, addr, paramId, pctSigned) =>
 
 // Read-only sweep: SUBSCRIBE to candidate objects; collect whatever answers;
 // UNSUBSCRIBE everything that responded so no stray subscriptions remain.
-async function probe(ip, nodes, objFrom, objTo, paramId, onProgress) {
+async function probe(ip, nodes, objFrom, objTo, params, onProgress) {
+  const paramList = Array.isArray(params) ? params : [params];
   const found = new Map();
   onFrame = (f) => {
     if (f.type === MSG.SET_VALUE || f.type === MSG.SET_VALUE_PERCENT) {
-      found.set(`${f.node}/${f.vd}/${f.obj}/${f.param}`, f);
+      const k = `${f.node}/${f.vd}/${f.obj}/${f.param}`;
+      if (!found.has(k) || f.type === MSG.SET_VALUE) found.set(k, f);
     }
   };
+  resetStats();
   try {
     const total = nodes.length * (objTo - objFrom + 1);
     let done = 0;
     for (const node of nodes) {
       for (let obj = objFrom; obj <= objTo; obj++) {
         const addrBytes = [(node >> 8) & 0xff, node & 0xff, 0x03, (obj >> 16) & 0xff, (obj >> 8) & 0xff, obj & 0xff];
-        await send(ip, frameBytes(MSG.SUBSCRIBE, addrBytes, paramId, 0));
+        // both query dialects per param — some firmware answers one and not the other
+        for (const p of paramList) {
+          await send(ip, frameBytes(MSG.SUBSCRIBE, addrBytes, p, 0));
+          await send(ip, frameBytes(MSG.SUBSCRIBE_PERCENT, addrBytes, p, 0));
+        }
         done++;
-        if (done % 16 === 0) {
-          await sleep(12);
+        if (done % 24 === 0) {
+          await sleep(10);
           if (onProgress) onProgress({ done, total, found: found.size });
         }
       }
     }
     await sleep(1200); // let stragglers answer
-    // clean up: unsubscribe everything that responded
+    // clean up: unsubscribe everything that responded (both dialects)
     for (const f of found.values()) {
       const addrBytes = [(f.node >> 8) & 0xff, f.node & 0xff, f.vd & 0xff, (f.obj >> 16) & 0xff, (f.obj >> 8) & 0xff, f.obj & 0xff];
       await send(ip, frameBytes(MSG.UNSUBSCRIBE, addrBytes, f.param, 0));
+      await send(ip, frameBytes(0x8f, addrBytes, f.param, 0)); // UNSUBSCRIBE_PERCENT
       await sleep(3);
     }
   } finally {
     onFrame = null;
   }
-  return [...found.values()];
+  const rawHex = stats.raw.map((b) => b.toString(16).padStart(2, '0')).join(' ');
+  return { found: [...found.values()], diag: { acks: stats.acks, naks: stats.naks, frames: stats.frames, bytes: stats.bytes, rawHex } };
 }
 
 // one-shot read of a single parameter (subscribe → first answer → unsubscribe)

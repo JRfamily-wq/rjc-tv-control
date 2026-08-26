@@ -320,9 +320,14 @@ ipcMain.handle('audio:probe', async (_e, { nodes, objFrom, objTo }) => {
   if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'set the processor IP first' };
   try {
     log('info', 'audio', `Probe started: nodes ${nodes.map((n) => '0x' + n.toString(16).toUpperCase()).join(', ')}, objects 0x${objFrom.toString(16)}–0x${objTo.toString(16)} (read-only)`);
-    const found = await bss.probe(cfg.audio.ip, nodes, objFrom, objTo, 0, (p) => broadcast('audioprobe', p));
-    log('info', 'audio', `Probe done: ${found.length} responding control${found.length === 1 ? '' : 's'}`);
-    return { ok: true, found };
+    const { found, diag } = await bss.probe(cfg.audio.ip, nodes, objFrom, objTo, [0, 1], (p) => broadcast('audioprobe', p));
+    const verdict = found.length ? `${found.length} responding control${found.length === 1 ? '' : 's'}`
+      : diag.naks > 0 ? `0 controls — device NAK'd ${diag.naks} queries (protocol mismatch)`
+      : diag.acks > 0 ? `0 controls — device ACK'd ${diag.acks} queries; these object numbers just don't exist`
+      : diag.bytes > 0 ? `0 controls — ${diag.bytes} bytes of non-DI traffic received (first: ${diag.rawHex})`
+      : `0 controls — device sent NOTHING back (port open, DI silent)`;
+    log('info', 'audio', `Probe done: ${verdict}`);
+    return { ok: true, found, diag };
   } catch (e) {
     log('warn', 'audio', `Probe failed: ${e.message}`);
     return { ok: false, err: String(e.message || e) };

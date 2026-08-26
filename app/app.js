@@ -824,7 +824,7 @@ function audioTab() {
         and listen for which speakers react — that's your zone. Test every row, including the 0.0 dB ones.</p>
       <div class="trow">
         <input type="text" id="probeNodes" value="${esc(a.probeNodes || '0xC642, 0x75B0')}" title="Node IDs (comma separated)" style="width:160px;font-family:var(--mono)"/>
-        <input type="text" id="probeRange" value="0x100-0x2FF" title="Object range" style="width:110px;font-family:var(--mono)"/>
+        <input type="text" id="probeRange" value="${esc((ui.audioProbe && ui.audioProbe.range) || '0x1-0xFFF')}" title="Object range" style="width:110px;font-family:var(--mono)"/>
         ${ui.audioProbe && ui.audioProbe.running
           ? `<span class="scan-status"><span class="spinner"></span> <span id="probeStatus">probing&hellip;</span></span>`
           : `<button class="mini" data-act="audio-probe">${I.radar} Probe (read-only)</button>`}
@@ -844,7 +844,7 @@ function audioTab() {
             ${(a.zones || []).map((z) => `<option value="${esc(z.id)}">${esc(z.name)}</option>`).join('')}
           </select><button class="mini" data-act="probe-use" data-addr="${esc(addr)}">Use</button></span>
         </div>`;
-      }).join('')}` : `<p class="tres err" style="margin-top:8px">Nothing answered in that range — try 0x1-0xFF, or put the other processor's IP in the field above and probe again.</p>`) : ''}
+      }).join('')}` : `<p class="tres err" style="margin-top:8px">${esc(probeDiagText(ui.audioProbe))}</p>`) : ''}
     </div>
     <div class="card slim guide"><h3>${I.clipboard} Getting the addresses (one laptop session)</h3>
       <ol>
@@ -1505,14 +1505,15 @@ document.addEventListener('click', async (e) => {
       const m = rangeRaw.match(/^(0x[0-9a-f]+|\d+)\s*-\s*(0x[0-9a-f]+|\d+)$/i);
       if (!nodes.length || !m) { toast('Node IDs like 0xC642 and a range like 0x100-0x2FF', 'warn'); break; }
       const objFrom = parseInt(m[1]), objTo = parseInt(m[2]);
-      if (objTo < objFrom || objTo - objFrom > 4096) { toast('Range too large — keep it under 4096 objects', 'warn'); break; }
+      if (objTo < objFrom || objTo - objFrom > 8192) { toast('Range too large — keep it under 8192 objects', 'warn'); break; }
       await saveCfg({ audio: { ...cfg.audio, probeNodes: nodesRaw } });
-      ui.audioProbe = { running: true, found: null };
+      ui.audioProbe = { running: true, found: null, range: rangeRaw };
       renderModal();
       const r = await api.audioProbe({ nodes, objFrom, objTo });
-      ui.audioProbe = { running: false, found: r.ok ? r.found : [] };
+      const nextRange = `0x${(objTo + 1).toString(16).toUpperCase()}-0x${(objTo + 1 + (objTo - objFrom)).toString(16).toUpperCase()}`;
+      ui.audioProbe = { running: false, found: r.ok ? r.found : [], diag: r.diag, range: rangeRaw, nextRange };
       if (!r.ok) toast(`Probe failed: ${r.err}`, 'err');
-      else toast(r.found.length ? `${r.found.length} control${r.found.length === 1 ? '' : 's'} answered` : 'Nothing answered in that range', r.found.length ? 'ok' : 'warn');
+      else toast(r.found.length ? `${r.found.length} control${r.found.length === 1 ? '' : 's'} answered` : 'Nothing answered — see the diagnosis below', r.found.length ? 'ok' : 'warn', 5000);
       renderModal();
       break;
     }
@@ -2002,3 +2003,13 @@ setInterval(() => {
     });
   }
 })();
+
+// Turn an empty probe's wire-level counters into a plain-English next step.
+function probeDiagText(ap) {
+  const d = (ap && ap.diag) || null;
+  if (!d) return 'Nothing answered in that range.';
+  if (d.naks > 0) return `The processor REJECTED ${d.naks} of our queries (NAK) - it speaks a different protocol dialect. Stop probing and report this.`;
+  if (d.acks > 0) return `The processor ACCEPTED all ${d.acks} queries but none of these object numbers exist in its design. Keep going: probe the next block, ${ap.nextRange || 'a higher range'}.`;
+  if (d.bytes > 0) return `The port sent ${d.bytes} bytes of non-DI traffic back (starts: ${d.rawHex}). Something other than Soundweb control is on :1023 - report this.`;
+  return 'The port accepted the connection but sent NOTHING back - this firmware likely has network DI disabled. Plan B is the serial port on the back of the BLU-100.';
+}
