@@ -102,6 +102,40 @@ const CHAN_ACC = {
 };
 const acc = (chan) => CHAN_ACC[chan] || `hsl(${((Number(String(chan).replace('.', '')) || 7) * 47) % 360} 45% 55%)`;
 
+/* ---------- channel logo lockups (hand-drawn SVG, no downloaded artwork) ---------- */
+const LG = (inner) => `<svg class="cl" viewBox="0 0 160 84" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${inner}</svg>`;
+const LFONT = `font-family="Bahnschrift, 'Segoe UI', sans-serif"`;
+const lgText = (t, y, size, weight = 700, extra = '', fill = '#fff') =>
+  `<text x="80" y="${y}" text-anchor="middle" ${LFONT} font-size="${size}" font-weight="${weight}" fill="${fill}" ${extra}>${t}</text>`;
+const CHAN_LOGO = {
+  '2.1': LG(lgText('RJC', 46, 40, 800, 'letter-spacing="2"') + lgText('R.J. CORMAN', 66, 10.5, 600, 'letter-spacing="3.5" opacity="0.75"')),
+  '11.1': LG( // NBC peacock, simplified six feathers
+    ['#fccc12', '#ff7112', '#e01a3c', '#b6469c', '#0089d0', '#33b540'].map((c, i) =>
+      `<path d="M0 -25 C8 -17 8 -5 0 1 C-8 -5 -8 -17 0 -25" fill="${c}" transform="translate(80 34) rotate(${-75 + i * 30})"/>`).join('')
+    + lgText('WLEX 18', 72, 14, 700, 'letter-spacing="1.5"')),
+  '12.1': LG( // CBS eye
+    `<path d="M28 30 C46 12 114 12 132 30 C114 48 46 48 28 30 Z" fill="#fff"/>`
+    + `<circle cx="80" cy="30" r="14.5" fill="#0d0e11"/><circle cx="80" cy="30" r="8.5" fill="#fff"/>`
+    + lgText('WKYT 27', 72, 14, 700, 'letter-spacing="1.5"')),
+  '13.1': LG( // ABC disc
+    `<circle cx="80" cy="31" r="24" fill="#fff"/>`
+    + lgText('abc', 39, 20, 700, 'letter-spacing="-1"', '#0d0e11')
+    + lgText('WTVQ 36', 74, 13, 700, 'letter-spacing="1.5"')),
+  '14.1': LG(lgText('FOX', 40, 34, 800, 'letter-spacing="1"') + lgText('56', 68, 21, 700, 'letter-spacing="1.5"')),
+  '15.1': LG(lgText('CNN', 52, 42, 800, 'letter-spacing="-1"')),
+  '16.1': LG(lgText('HLN', 52, 42, 800, 'letter-spacing="1"')),
+  '17.1': LG(lgText('FOX', 42, 34, 800, 'letter-spacing="1"') + lgText('NEWS', 66, 15, 700, 'letter-spacing="7"')),
+  '18.1': LG(lgText('THE', 24, 11, 600, 'letter-spacing="5" opacity="0.75"') + lgText('WEATHER', 46, 22, 800, 'letter-spacing="1.5"') + lgText('CHANNEL', 66, 12.5, 600, 'letter-spacing="5.5" opacity="0.85"')),
+  '19.1': LG(lgText('E!', 54, 48, 800)),
+  '20.1': LG(`<g transform="translate(80 0) skewX(-12) translate(-80 0)">` + lgText('ESPN', 52, 40, 800, 'letter-spacing="1"') + `</g>`),
+  '21.1': LG(lgText('CMT', 46, 38, 800, 'letter-spacing="2"') + lgText('COUNTRY MUSIC', 68, 9.5, 600, 'letter-spacing="3.2" opacity="0.7"')),
+  '22.1': LG(`<rect x="61" y="8" width="38" height="34" rx="4" fill="#e2b165"/>`
+    + lgText('H', 34, 26, 800, '', '#171006')
+    + lgText('HISTORY', 68, 14, 700, 'letter-spacing="3"')),
+};
+const chanLogo = (chan, name) => CHAN_LOGO[String(chan)]
+  || LG(lgText(`CH ${esc(String(chan))}`, 42, 24, 800) + lgText(esc(name || ''), 66, 12, 600, 'letter-spacing="2" opacity="0.75"'));
+
 /* ---------- helpers ---------- */
 const $ = (sel) => document.querySelector(sel);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -345,11 +379,12 @@ function renderHeader() {
   renderMix();
 
   const shown = shownFeeds();
-  const tvN = shown.reduce((s, f) => s + feedTvs(f.id).length, 0);
   const btn = $('#tuneShown');
-  btn.textContent = ui.filter === 'all' ? `Tune all ${tvN || shown.length}` : `Tune ${title}`;
+  btn.textContent = 'Other channel';
   btn.style.display = shown.length ? '' : 'none';
 
+  // the dashboard is a whole-room channel picker now — per-tile selection retired
+  $('#selectToggle').style.display = 'none';
   $('#selectToggle').classList.toggle('on', ui.selecting);
   $('#selectToggle').textContent = ui.selecting ? 'Done' : 'Select';
   $('#fsBtn').innerHTML = I.brackets;
@@ -414,6 +449,42 @@ function renderGrid() {
       <button class="btn primary" data-act="open-settings" data-tab="boxes">Scan the network</button></div>`;
     return;
   }
+  // One tap sends the whole room there — the dashboard IS the channel picker.
+  const shown = shownFeeds();
+  const weights = new Map(); // chan -> tv-weighted count of feeds currently there
+  let liveWeight = 0;
+  for (const f of shown) {
+    const eff = effChanOf(f);
+    if (!eff.chan) continue;
+    if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
+    const w = Math.max(1, feedTvs(f.id).length);
+    weights.set(String(eff.chan), (weights.get(String(eff.chan)) || 0) + w);
+    liveWeight += w;
+  }
+  const top = [...weights.entries()].sort((a, b) => b[1] - a[1])[0];
+  const activeChan = top && top[1] >= liveWeight / 2 ? top[0] : null;
+  const tiles = (cfg.favorites || []).map((f) => {
+    const on = activeChan != null && String(f.chan) === String(activeChan);
+    const n = weights.get(String(f.chan)) || 0;
+    return `<button class="cchan ${on ? 'on' : ''}" data-act="hero-chan" data-chan="${esc(f.chan)}" style="--acc:${acc(f.chan)}" title="Send every TV to ${esc(f.name)}">
+      ${chanLogo(f.chan, f.name)}
+      <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${n ? `<span class="cc-live"><i></i>${n} TV${n === 1 ? '' : 's'}</span>` : ''}</span>
+    </button>`;
+  }).join('');
+  const pills = shown.map((f) => {
+    const eff = effChanOf(f);
+    const st = eff.st;
+    const cls = st && !st.online ? 'off' : st && st.online && st.mode === 1 ? 'stby' : '';
+    return `<button class="fpill ${cls}" data-act="feed-pill" data-id="${esc(f.id)}" title="Tune just this group">
+      <i class="dot"></i>${esc(f.name)}${eff.chan ? `<b>${esc(String(eff.chan))}</b>` : ''}</button>`;
+  }).join('');
+  grid.innerHTML = `
+    <div class="hero-grid">${tiles}</div>
+    <div class="fstrip"><span class="fs-lbl">Feeds</span>${pills}</div>`;
+}
+
+function renderGridOld() {
+  const grid = $('#grid');
   let groups;
   if (ui.filter === 'all') {
     groups = cfg.zones.map((z) => ({ zone: z, feeds: cfg.boxes.filter((b) => feedZone(b) === z.id) }))
@@ -1241,6 +1312,25 @@ document.addEventListener('click', async (e) => {
       if (!ui.selecting) ui.selected.clear();
       renderGrid(); renderSelbar(); renderHeader();
       break;
+    case 'hero-chan': {
+      const chan = btn.dataset.chan;
+      const feeds = shownFeeds();
+      if (!feeds.length) { toast('No feeds configured yet', 'warn'); break; }
+      const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
+      const label = ui.filter === 'all' ? `Whole gym — ${tvN || feeds.length} TVs`
+        : `${ui.filter === 'none' ? 'Unzoned' : (zoneOf(ui.filter) || {}).name} — ${tvN || feeds.length} TVs`;
+      gatedTune(() => {
+        btn.classList.add('tuning');
+        setTimeout(() => btn.classList.remove('tuning'), 900);
+        doTuneFeeds(feeds.map((f) => f.id), chan, label);
+      });
+      break;
+    }
+    case 'feed-pill': {
+      const feed = feedOf(btn.dataset.id);
+      if (feed) gatedTune(() => openPicker([feed.id], feed.name));
+      break;
+    }
     case 'tune-shown': {
       const shown = shownFeeds();
       const tvN = shown.reduce((s, f) => s + feedTvs(f.id).length, 0);
