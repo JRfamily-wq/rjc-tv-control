@@ -146,4 +146,26 @@ async function probe(ip, nodes, objFrom, objTo, paramId, onProgress) {
   return [...found.values()];
 }
 
-module.exports = { setPercent, setValue, bump, probe };
+// one-shot read of a single parameter (subscribe → first answer → unsubscribe)
+async function readValue(ip, addrStr, paramId, timeoutMs = 900) {
+  const addr = parseAddr(addrStr);
+  const wantNode = (addr[0] << 8) | addr[1];
+  const wantObj = (addr[3] << 16) | (addr[4] << 8) | addr[5];
+  let result = null;
+  const prev = onFrame;
+  onFrame = (f) => {
+    if (f.node === wantNode && f.vd === addr[2] && f.obj === wantObj && f.param === paramId) result = f.value;
+    if (prev) prev(f);
+  };
+  try {
+    await send(ip, frameBytes(MSG.SUBSCRIBE, addr, paramId, 0));
+    const t0 = Date.now();
+    while (result === null && Date.now() - t0 < timeoutMs) await sleep(40);
+    await send(ip, frameBytes(MSG.UNSUBSCRIBE, addr, paramId, 0));
+  } finally {
+    onFrame = prev;
+  }
+  return result;
+}
+
+module.exports = { setPercent, setValue, bump, probe, readValue, sleep };

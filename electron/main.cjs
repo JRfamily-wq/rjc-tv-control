@@ -329,15 +329,39 @@ ipcMain.handle('audio:probe', async (_e, { nodes, objFrom, objTo }) => {
   }
 });
 
-ipcMain.handle('audio:nudge', async (_e, { addr }) => {
+// Dip: read → set −6 dB → verify mid-dip → restore exact value.
+// Distinguishes "not audible / wrong fader" from "device ignores writes".
+ipcMain.handle('audio:dip', async (_e, { addr }) => {
   const cfg = store.load();
   if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
   try {
-    await bss.bump(cfg.audio.ip, addr, 0, 3);
-    await new Promise((r) => setTimeout(r, 1200));
-    await bss.bump(cfg.audio.ip, addr, 0, -3);
-    log('info', 'audio', `Nudged ${addr} (+3% / −3%)`);
-    return { ok: true };
+    const ip = cfg.audio.ip;
+    const v0 = await bss.readValue(ip, addr, 0);
+    if (v0 === null) return { ok: false, err: 'object did not answer a read' };
+    await bss.setValue(ip, addr, 0, v0 - 60000);
+    await bss.sleep(600);
+    const mid = await bss.readValue(ip, addr, 0);
+    await bss.sleep(1900);
+    await bss.setValue(ip, addr, 0, v0);
+    const wrote = mid !== null && Math.abs(mid - (v0 - 60000)) < 5000;
+    log(wrote ? 'info' : 'warn', 'audio', `Dip ${addr}: ${v0} → ${mid === null ? 'no read-back' : mid} → restored (${wrote ? 'write CONFIRMED' : 'write NOT taken'})`);
+    return { ok: true, before: v0, wrote };
+  } catch (e) { return { ok: false, err: String(e.message || e) }; }
+});
+
+// Mute blink: different message path than the fader — flips param 1 for 1.5s.
+ipcMain.handle('audio:blink', async (_e, { addr }) => {
+  const cfg = store.load();
+  if (!cfg.audio || !cfg.audio.ip) return { ok: false, err: 'not configured' };
+  try {
+    const ip = cfg.audio.ip;
+    const m0 = await bss.readValue(ip, addr, 1);
+    const target = m0 === 1 ? 0 : 1;
+    await bss.setValue(ip, addr, 1, target);
+    await bss.sleep(1500);
+    await bss.setValue(ip, addr, 1, m0 === null ? 0 : m0);
+    log('info', 'audio', `Mute blink ${addr} (was ${m0 === null ? 'unreadable' : m0})`);
+    return { ok: true, hadRead: m0 !== null };
   } catch (e) { return { ok: false, err: String(e.message || e) }; }
 });
 

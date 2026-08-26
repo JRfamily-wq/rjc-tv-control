@@ -819,9 +819,9 @@ function audioTab() {
     </div>
     <div class="card slim"><h3>${I.radar} Find controls automatically</h3>
       <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:-2px 0 10px">
-        No design file needed: a <b>read-only probe</b> asks the processors which control objects exist.
-        Then <b>Nudge</b> a result (+3% for a second, then back) and listen for which speakers breathe —
-        that's your zone. Assign it and the slider goes live. Node IDs are prefilled from your rack.</p>
+        No design file needed: a <b>read-only probe</b> asks the processor which control objects exist.
+        Then <b>Dip</b> a result (&minus;6 dB for 2.5s, auto-restored, write-verified) or <b>Blink mute</b>
+        and listen for which speakers react — that's your zone. Test every row, including the 0.0 dB ones.</p>
       <div class="trow">
         <input type="text" id="probeNodes" value="${esc(a.probeNodes || '0xC642, 0x75B0')}" title="Node IDs (comma separated)" style="width:160px;font-family:var(--mono)"/>
         <input type="text" id="probeRange" value="0x100-0x2FF" title="Object range" style="width:110px;font-family:var(--mono)"/>
@@ -838,7 +838,8 @@ function audioTab() {
         return `<div class="row-grid" style="grid-template-columns:1.3fr 0.9fr auto auto">
           <span class="ip">${esc(addr)}</span>
           <span class="tres">${esc(String(f.value))}${guess}</span>
-          <button class="mini" data-act="probe-nudge" data-addr="${esc(addr)}">Nudge</button>
+          <span class="pairbox"><button class="mini" data-act="probe-dip" data-addr="${esc(addr)}">Dip &minus;6dB</button>
+          <button class="mini" data-act="probe-blink" data-addr="${esc(addr)}">Blink mute</button></span>
           <span class="pairbox"><select style="width:150px">
             ${(a.zones || []).map((z) => `<option value="${esc(z.id)}">${esc(z.name)}</option>`).join('')}
           </select><button class="mini" data-act="probe-use" data-addr="${esc(addr)}">Use</button></span>
@@ -1515,10 +1516,20 @@ document.addEventListener('click', async (e) => {
       renderModal();
       break;
     }
-    case 'probe-nudge': {
-      toast('Nudging +3% for a second — listen…');
-      const r = await api.audioNudge({ addr: btn.dataset.addr });
-      if (!r.ok) toast(`Nudge failed: ${r.err}`, 'err');
+    case 'probe-dip': {
+      toast('Dipping −6 dB for 2.5 seconds — listen…');
+      const r = await api.audioDip({ addr: btn.dataset.addr });
+      if (!r.ok) toast(`Dip failed: ${r.err}`, 'err');
+      else toast(r.wrote
+        ? `Write CONFIRMED on ${btn.dataset.addr} — did a zone dip?`
+        : `Device IGNORED the write on ${btn.dataset.addr} — reads work, writes don't`,
+        r.wrote ? 'ok' : 'warn', 5000);
+      break;
+    }
+    case 'probe-blink': {
+      toast('Blinking mute for 1.5 seconds — listen…');
+      const r = await api.audioBlink({ addr: btn.dataset.addr });
+      if (!r.ok) toast(`Blink failed: ${r.err}`, 'err');
       break;
     }
     case 'probe-use': {
