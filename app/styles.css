@@ -893,3 +893,54 @@ input[data-bind="settingsCode"]:focus { -webkit-text-security: none; }
   padding: 12px 12px 4px; font-size: 10px; color: var(--side-muted);
   letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.8;
 }
+
+/* ---------- dashboard volume bar (touch-first) ---------- */
+.volbar {
+  margin: 0 24px 16px; padding: 15px 20px 18px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--r-card); box-shadow: var(--shadow-card);
+}
+.vol-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+.vol-head .ic { width: 15px; height: 15px; }
+.vol-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px 28px; }
+.vol-row { display: flex; align-items: center; gap: 16px; }
+.vol-row.is-off { opacity: 0.55; }
+.vol-mute {
+  width: 52px; height: 52px; flex: none; border-radius: 13px; display: grid; place-items: center;
+  color: var(--muted); background: var(--surface-2); border: 1px solid var(--hairline);
+  transition: color 0.13s ease, background 0.13s ease, border-color 0.13s ease, transform 0.1s ease;
+}
+.vol-mute:hover { color: var(--text); border-color: var(--hairline-strong); }
+.vol-mute:active { transform: scale(0.94); }
+.vol-mute.on { color: #fff; background: var(--orange); border-color: var(--orange); }
+.vol-mute .ic { width: 24px; height: 24px; stroke-width: 1.9; }
+.vol-mute[disabled] { opacity: 0.5; pointer-events: none; }
+.vol-main { flex: 1; min-width: 0; }
+.vol-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.vol-name { font-size: 15.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vol-pct { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; flex: none; }
+.vol-row.is-muted .vol-pct { color: var(--orange); }
+.vol-row.is-off .vol-pct { font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+.vol-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 34px; background: transparent; cursor: pointer; --fill: 50%; }
+.vol-slider::-webkit-slider-runnable-track {
+  height: 16px; border-radius: 9px;
+  background: linear-gradient(90deg, var(--red) 0 var(--fill), var(--surface-2) var(--fill) 100%);
+  border: 1px solid var(--hairline-strong);
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 32px; height: 32px; border-radius: 50%; margin-top: -9px;
+  background: #fff; border: 3.5px solid var(--red);
+  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.4);
+  transition: transform 0.08s ease;
+}
+.vol-slider:active::-webkit-slider-thumb { transform: scale(1.1); }
+.vol-row.is-muted .vol-slider::-webkit-slider-runnable-track { background: linear-gradient(90deg, var(--orange) 0 var(--fill), var(--surface-2) var(--fill) 100%); }
+.vol-row.is-muted .vol-slider::-webkit-slider-thumb { border-color: var(--orange); }
+.vol-slider:disabled { cursor: default; }
+.vol-slider:disabled::-webkit-slider-runnable-track { background: var(--surface-2); }
+.vol-slider:disabled::-webkit-slider-thumb { border-color: var(--muted); background: var(--surface); box-shadow: none; }
+.vol-note { margin-top: 13px; font-size: 12px; color: var(--muted); }
+
+/* zone rail warn state (counts removed — a soft ring stands in) */
+.st.st-warn .st-node { box-shadow: 0 0 0 3px color-mix(in srgb, var(--orange) 28%, transparent); border-color: var(--orange); }

@@ -285,58 +285,47 @@ function saveCfg(partial) { return api.updateConfig(partial); }
 /* ---------- render: sidebar ---------- */
 function renderSideNav() {
   // Zones as stations on a rail line — the metro-map metaphor, on brand.
-  const counts = {}, warn = {};
+  const warn = {};
   for (const t of cfg.tvs) {
-    counts[t.zone] = (counts[t.zone] || 0) + 1;
     const st = t.boxId ? statuses[t.boxId] : null;
     if ((st && !st.online) || !t.boxId) warn[t.zone] = true;
   }
   const unzoned = cfg.tvs.filter((t) => !zoneOf(t.zone)).length;
-  const anyWarn = Object.keys(warn).length > 0;
   let html = `<div class="side-label"><span>Zones</span></div><div class="railnav">`;
   html += `<button class="st ${ui.filter === 'all' ? 'active' : ''}" data-act="chip" data-id="all" style="--zc:#e60000">
-    <span class="st-node st-all"></span><span class="st-lbl">All TVs</span><span class="st-cnt${anyWarn ? ' warn' : ''}">${cfg.tvs.length}</span></button>`;
+    <span class="st-node st-all"></span><span class="st-lbl">All TVs</span></button>`;
   for (const z of cfg.zones) {
-    html += `<button class="st ${ui.filter === z.id ? 'active' : ''}" data-act="chip" data-id="${esc(z.id)}" style="--zc:${esc(z.color)}">
-      <span class="st-node"></span><span class="st-lbl">${esc(z.name)}</span><span class="st-cnt${warn[z.id] ? ' warn' : ''}">${counts[z.id] || 0}</span></button>`;
+    html += `<button class="st ${ui.filter === z.id ? 'active' : ''} ${warn[z.id] ? 'st-warn' : ''}" data-act="chip" data-id="${esc(z.id)}" style="--zc:${esc(z.color)}">
+      <span class="st-node"></span><span class="st-lbl">${esc(z.name)}</span></button>`;
   }
   if (unzoned) {
     html += `<button class="st ${ui.filter === 'none' ? 'active' : ''}" data-act="chip" data-id="none" style="--zc:#7e8490">
-      <span class="st-node st-dash"></span><span class="st-lbl">Unzoned</span><span class="st-cnt">${unzoned}</span></button>`;
+      <span class="st-node st-dash"></span><span class="st-lbl">Unzoned</span></button>`;
   }
   html += `</div>`;
   $('#zoneNav').innerHTML = html;
 }
 
-function renderAudio() {
-  const host = $('#audioList');
+// Dashboard volume panel — big touch sliders under the "now showing" bar.
+function renderVolume() {
+  const host = $('#volbar');
   const a = cfg.audio || {};
-  if (!a.enabled || !(a.zones || []).length) { host.innerHTML = ''; return; }
-  let html = `<div class="side-label"><span>Audio</span></div>`;
-  html += a.zones.map((z) => `<div class="aud-row ${z.addr ? '' : 'aud-off'}" title="${z.addr ? '' : 'No address set — see Settings → Audio'}">
-    <div class="aud-top">
-      <span class="aud-name">${esc(z.name)}</span>
-      <span class="aud-pct">${z.muted ? 'MUTE' : `${Math.round(z.pct ?? 50)}%`}</span>
-      <button class="aud-mute ${z.muted ? 'on' : ''}" data-act="audio-mute" data-id="${esc(z.id)}" title="${z.muted ? 'Unmute' : 'Mute'}">${z.muted ? I.spkmute : I.speaker}</button>
-    </div>
-    <input type="range" class="aud-slider" min="0" max="100" value="${Math.round(z.pct ?? 50)}" data-bind="audio-slider" data-id="${esc(z.id)}" ${z.addr ? '' : 'disabled'}/>
-  </div>`).join('');
-  host.innerHTML = html;
-}
-
-function renderScenes() {
-  // Scenes as timetable entries — condensed caps with dotted leaders.
-  let html = `<div class="side-label"><span>Scenes</span></div>`;
-  html += cfg.presets.map((p) => {
-    const zones = Object.keys(p.assignments).length;
-    return `<button class="tt" data-act="preset" data-id="${esc(p.id)}">
-      <span class="tt-name">${esc(p.name)}</span><span class="tt-dots"></span><span class="tt-meta">${zones} zone${zones === 1 ? '' : 's'}</span>
-    </button>`;
-  }).join('');
-  html += `<button class="tt tt-save" data-act="save-preset" title="Save what's on now as a scene">
-    <span class="tt-plus">${I.plus}</span><span class="tt-name">Save current</span><span class="tt-dots"></span>
-  </button>`;
-  $('#sceneList').innerHTML = html;
+  const zones = (a.zones || []);
+  if (!a.enabled || !zones.length) { host.hidden = true; host.innerHTML = ''; return; }
+  host.hidden = false;
+  host.innerHTML = `<div class="vol-head">${I.speaker}<span>Volume</span></div>
+    <div class="vol-rows">${zones.map((z) => {
+      const off = !z.addr;
+      const pct = Math.round(z.pct ?? 50);
+      return `<div class="vol-row ${off ? 'is-off' : ''} ${z.muted ? 'is-muted' : ''}">
+        <button class="vol-mute ${z.muted ? 'on' : ''}" data-act="audio-mute" data-id="${esc(z.id)}" title="${z.muted ? 'Unmute' : 'Mute'}" ${off ? 'disabled' : ''}>${z.muted ? I.spkmute : I.speaker}</button>
+        <div class="vol-main">
+          <div class="vol-top"><span class="vol-name">${esc(z.name)}</span><span class="vol-pct">${off ? 'Not set' : z.muted ? 'Muted' : pct + '%'}</span></div>
+          <input type="range" class="vol-slider" min="0" max="100" value="${pct}" data-bind="audio-slider" data-id="${esc(z.id)}" ${off ? 'disabled' : ''} style="--fill:${pct}%"/>
+        </div>
+      </div>`;
+    }).join('')}</div>
+    ${zones.some((z) => !z.addr) ? `<div class="vol-note">Address a zone in Settings &rarr; Audio to switch it on.</div>` : ''}`;
 }
 
 /* ---------- render: header ---------- */
@@ -369,24 +358,11 @@ function renderHeader() {
     : (zoneOf(ui.filter) || {}).name || 'Zone';
   $('#pageTitle').textContent = title;
 
-  // One quiet meta sentence — a single colored dot, plain text, no badge chrome.
-  let live = 0, stby = 0, offl = 0;
-  for (const f of shownFeeds()) {
-    const w = Math.max(1, feedTvs(f.id).length);
-    const st = statuses[f.id];
-    if (st && !st.online) offl += w;
-    else if (st && st.online && st.mode === 1) stby += w;
-    else live += w;
-  }
+  // One quiet health line — just a status dot, no counts.
   const feedsDown = cfg.boxes.filter((b) => statuses[b.id] && !statuses[b.id].online).length;
-  const parts = [];
-  parts.push(feedsDown > 0
-    ? `<span class="mdot warn"></span><span class="mwarn">${feedsDown} feed${feedsDown === 1 ? '' : 's'} unreachable</span>`
-    : `<span class="mdot ok"></span>All ${cfg.boxes.length} feeds healthy`);
-  parts.push(`<b>${live}</b> live`);
-  if (stby) parts.push(`<b>${stby}</b> standby`);
-  if (offl) parts.push(`<b class="mwarn">${offl}</b> offline`);
-  $('#metaLine').innerHTML = parts.join('<span class="msep">·</span>');
+  $('#metaLine').innerHTML = feedsDown > 0
+    ? `<span class="mdot warn"></span><span class="mwarn">${feedsDown} feed${feedsDown === 1 ? '' : 's'} need attention</span>`
+    : `<span class="mdot ok"></span>All systems healthy`;
   renderMix();
 
   const shown = shownFeeds();
@@ -484,17 +460,7 @@ function renderGrid() {
       <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>${n} TV${n === 1 ? '' : 's'}</span>` : ''}</span>
     </button>`;
   }).join('');
-  const pills = shown.map((f) => {
-    const eff = effChanOf(f);
-    const st = eff.st;
-    const cls = st && !st.online ? 'off' : st && st.online && st.mode === 1 ? 'stby' : '';
-    const disp = eff.chan ? (favName(eff.chan) || `CH ${wallOf(eff.chan)}`) : (cls === 'off' ? 'offline' : cls === 'stby' ? 'standby' : '—');
-    return `<button class="fpill ${cls}" data-act="feed-pill" data-id="${esc(f.id)}" title="Tune just this group">
-      <i class="dot"></i>${esc(f.name)}<b>${esc(disp)}</b></button>`;
-  }).join('');
-  grid.innerHTML = `
-    <div class="hero-grid">${tiles}</div>
-    <div class="fstrip"><span class="fs-lbl">Feeds</span><div class="fstrip-pills">${pills}</div></div>`;
+  grid.innerHTML = `<div class="hero-grid">${tiles}</div>`;
 }
 
 function renderGridOld() {
@@ -624,7 +590,7 @@ function updatePreviewChip() {
 }
 
 function renderAll() {
-  renderSideNav(); renderScenes(); renderAudio(); renderHeader(); renderGrid(); renderSelbar(); renderPreview(); renderModal();
+  renderSideNav(); renderVolume(); renderHeader(); renderGrid(); renderSelbar(); renderPreview(); renderModal();
 }
 
 /* ---------- render: modals ---------- */
@@ -2111,9 +2077,10 @@ document.addEventListener('input', (e) => {
   const el = e.target.closest('[data-bind="audio-slider"]');
   if (!el) return;
   const id = el.dataset.id, pct = Number(el.value);
-  const row = el.closest('.aud-row');
-  const pctEl = row && row.querySelector('.aud-pct');
-  if (pctEl) pctEl.textContent = `${pct}%`;
+  el.style.setProperty('--fill', pct + '%');
+  const row = el.closest('.vol-row');
+  const pctEl = row && row.querySelector('.vol-pct');
+  if (pctEl && !(row.classList.contains('is-muted'))) pctEl.textContent = `${pct}%`;
   const now = Date.now();
   if (!audThrottle[id] || now - audThrottle[id] > 120) {
     audThrottle[id] = now;
