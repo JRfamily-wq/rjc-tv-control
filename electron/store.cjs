@@ -75,7 +75,7 @@ function defaults() {
     theme: 'dark',
     preview: { enabled: false, deviceId: null, boxId: null, collapsed: false },
     pollSeconds: 10,
-    identifyChannel: '18.1',
+    identifyChannel: '362',
     settingsCode: '1972',
     lockTuning: false,
     sleepEnabled: true,

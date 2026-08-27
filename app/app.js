@@ -90,10 +90,10 @@ const CHAN_ACC = {
   '11.1': '#3fae6a',  // WLEX (NBC)
   '12.1': '#4a7fd4',  // WKYT (CBS)
   '13.1': '#b04ae0',  // WTVQ (ABC)
-  '14.1': '#2f6fd0',  // WDKY (FOX 56)
+  '14.1': '#7c5bd6',  // WDKY (FOX 56) — violet, separated from the other blues
   '15.1': '#cf5b45',  // CNN
-  '16.1': '#cf5b45',  // HLN
-  '17.1': '#4463d0',  // FOX
+  '16.1': '#c9903a',  // HLN — kept away from CNN so the mix bar can tell them apart
+  '17.1': '#3a86c8',  // FOX News — steel blue, separated from the CBS blue
   '18.1': '#46b7d6',  // TWC
   '19.1': '#d24bb0',  // E!
   '20.1': '#e8642c',  // ESPN
@@ -159,6 +159,13 @@ function feedShareCounts() {
 function applyTheme(t) {
   const theme = t === 'light' ? 'light' : 'dark';
   document.documentElement.dataset.theme = theme;
+  // Chromium can skip repainting static elements when only inherited custom
+  // properties changed — stale-theme patches survive on screen. Force a full
+  // repaint by cycling display on the root (imperceptible, done in one frame).
+  const root = document.documentElement;
+  root.style.display = 'none';
+  void root.offsetHeight;
+  root.style.display = '';
   if (api.setOverlay) {
     api.setOverlay(theme === 'light'
       ? { color: '#f3f3f1', symbolColor: '#17191c' }
@@ -481,13 +488,13 @@ function renderGrid() {
     const eff = effChanOf(f);
     const st = eff.st;
     const cls = st && !st.online ? 'off' : st && st.online && st.mode === 1 ? 'stby' : '';
-    const disp = eff.chan ? (favName(eff.chan) || `CH ${wallOf(eff.chan)}`) : '';
+    const disp = eff.chan ? (favName(eff.chan) || `CH ${wallOf(eff.chan)}`) : (cls === 'off' ? 'offline' : cls === 'stby' ? 'standby' : '—');
     return `<button class="fpill ${cls}" data-act="feed-pill" data-id="${esc(f.id)}" title="Tune just this group">
-      <i class="dot"></i>${esc(f.name)}${disp ? `<b>${esc(disp)}</b>` : ''}</button>`;
+      <i class="dot"></i>${esc(f.name)}<b>${esc(disp)}</b></button>`;
   }).join('');
   grid.innerHTML = `
     <div class="hero-grid">${tiles}</div>
-    <div class="fstrip"><span class="fs-lbl">Feeds</span>${pills}</div>`;
+    <div class="fstrip"><span class="fs-lbl">Feeds</span><div class="fstrip-pills">${pills}</div></div>`;
 }
 
 function renderGridOld() {
@@ -893,7 +900,7 @@ function audioTab() {
         <input type="text" value="${esc(a.comPort || '')}" data-bind="audio-com" placeholder="COM3" style="width:100px;font-family:var(--mono)"/></div>` : ''}
     </div>
     <div class="card slim"><h3>${I.radar} Find the processor</h3>
-      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">
+      <p class="card-note">
         <b>Verify identity</b> proves who really answers the IP (a BSS box's MAC is 00-0f-d4 + its node number — anything else = IP conflict).
         <b>Listen</b> passively collects the announcements every London box broadcasts: node, MAC, the IP it <i>claims</i>, and the IP it <i>sent from</i>.
         <b>Port scan</b> shows which control services answer.</p>
@@ -906,7 +913,7 @@ function audioTab() {
       ${ui.audioTools && ui.audioTools.html ? `<div style="margin-top:10px">${ui.audioTools.html}</div>` : ''}
     </div>
     <div class="card slim"><h3>${I.clipboard} Paste from London Architect</h3>
-      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">
+      <p class="card-note">
         In London Architect, hold <b>ALT and move a fader</b> (or select the gain object) — the Direct Inject toolbar shows a byte string like
         <code style="font-family:var(--mono)">02 88 75 B0 03 00 01 5A …</code>. Paste it here (hex or decimal, commas or spaces) and the address decodes itself.</p>
       <div class="trow">
@@ -923,7 +930,7 @@ function audioTab() {
       </div>`) : ''}
     </div>
     <div class="card slim"><h3>${I.sliders} Manual control tester</h3>
-      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">Talks over the selected control path. Read shows the live value; Set −6 dB / Set 0 dB write absolute gain; Bump nudges relatively (DI only).</p>
+      <p class="card-note">Talks over the selected control path. Read shows the live value; Set −6 dB / Set 0 dB write absolute gain; Bump nudges relatively (DI only).</p>
       <div class="trow">
         <input type="text" id="rawAddr" value="${esc((ui.keep || {}).rawAddr || '')}" placeholder="0x75B0,0x3,0x15A" style="width:190px;font-family:var(--mono)"/>
         <input type="number" id="rawParam" value="${esc((ui.keep || {}).rawParam ?? '0')}" min="0" max="99" style="width:64px" title="Parameter #"/>
@@ -936,7 +943,7 @@ function audioTab() {
       ${ui.rawResult ? `<p class="tres" style="margin-top:8px">${esc(ui.rawResult)}</p>` : ''}
     </div>
     <div class="card slim"><h3>${I.zonebox} Speaker zones</h3>
-      <p style="color:var(--muted);font-size:12.5px;margin:-2px 0 10px;line-height:1.5">Each zone needs its gain object's HiQnet address from the design — get it with the free HARMAN <b>Audio Architect</b> app (see steps below). Format: <code style="font-family:var(--mono)">node,vd,object</code> — hex like <code style="font-family:var(--mono)">0x100,0x3,0x152</code> is fine.</p>
+      <p class="card-note">Each zone needs its gain object's HiQnet address from the design — get it with the free HARMAN <b>Audio Architect</b> app (see steps below). Format: <code style="font-family:var(--mono)">node,vd,object</code> — hex like <code style="font-family:var(--mono)">0x100,0x3,0x152</code> is fine.</p>
       <div class="row-grid row-head" style="grid-template-columns:1.1fr 1.3fr 0.55fr 0.55fr auto"><span>Zone</span><span>Address</span><span>Gain #</span><span>Mute #</span><span></span></div>
       ${(a.zones || []).map((z) => `<div class="row-grid" style="grid-template-columns:1.1fr 1.3fr 0.55fr 0.55fr auto">
         <input type="text" value="${esc(z.name)}" data-bind="az-name" data-id="${esc(z.id)}" maxlength="22"/>
@@ -948,7 +955,7 @@ function audioTab() {
       <div style="margin-top:12px"><button class="btn outline" data-act="az-add">${I.plus} Add zone</button></div>
     </div>
     <div class="card slim"><h3>${I.radar} Find controls automatically</h3>
-      <p style="color:var(--muted);font-size:12.5px;line-height:1.5;margin:-2px 0 10px">
+      <p class="card-note">
         No design file needed: a <b>read-only probe</b> asks the processor which control objects exist.
         Then <b>Dip</b> a result (&minus;6 dB for 2.5s, auto-restored, write-verified) or <b>Blink mute</b>
         and listen for which speakers react — that's your zone. Test every row, including the 0.0 dB ones.</p>
@@ -1037,6 +1044,7 @@ function diagTab() {
     </div>
 
     <div class="card"><h3>${I.feed} Feed health</h3>
+      <div class="fh-row fh-head"><span></span><span>Feed</span><span>Address</span><span>Now playing</span><span>Last seen</span><span></span></div>
       ${cfg.boxes.map((b) => {
         const st = statuses[b.id];
         const state = !st || !st.online ? ['#5a5f6a', 'offline'] : st.mode === 1 ? ['#f8982d', 'standby'] : ['#2fbf71', 'live'];
@@ -1047,9 +1055,9 @@ function diagTab() {
           <span class="fh-dot" style="background:${state[0]}"></span>
           <span style="font-weight:700">${esc(b.name)}</span>
           <span class="tres">${esc(b.ip)}${b.demo ? ' (demo)' : ''}</span>
-          <span class="tres">${st && st.online && st.mode === 0 ? `${esc(st.callsign || '')} ${esc(st.chan || '')}` : state[1]}</span>
+          <span class="${st && st.online && st.mode === 0 ? 'fh-chan' : 'tres'}">${st && st.online && st.mode === 0 ? `${esc(st.callsign || '')} ${esc(st.chan || '')}` : state[1]}</span>
           <span class="tres">${st ? relTime(st.lastOk) : '—'}</span>
-          <span style="display:flex;gap:6px;align-items:center;justify-content:flex-end">${pingRes}<button class="mini" data-act="diag-ping" data-id="${esc(b.id)}" data-ip="${esc(b.ip)}">Ping</button></span>
+          <span style="display:flex;gap:6px;align-items:center;justify-content:flex-end">${pingRes}<button class="mini fh-ping" data-act="diag-ping" data-id="${esc(b.id)}" data-ip="${esc(b.ip)}">Ping</button></span>
         </div>`;
       }).join('')}
     </div>
@@ -1123,11 +1131,11 @@ function boxesTab() {
     scanAction)}
     ${foundHtml}
     <div class="card editgrid"><h3>${I.feed} Feeds — ${cfg.boxes.length} receivers</h3>
-      <div class="row-grid row-head" style="grid-template-columns:1fr 1.2fr 0.6fr auto"><span>Name</span><span>Address</span><span>TVs on it</span><span></span></div>
-      ${cfg.boxes.map((b) => `<div class="row-grid" style="grid-template-columns:1fr 1.2fr 0.6fr auto">
+      <div class="row-grid row-head" style="grid-template-columns:1fr 1.2fr 72px 148px"><span>Name</span><span>Address</span><span style="text-align:right">TVs on it</span><span></span></div>
+      ${cfg.boxes.map((b) => `<div class="row-grid" style="grid-template-columns:1fr 1.2fr 72px 148px">
         <input type="text" value="${esc(b.name)}" data-bind="feed-name" data-id="${esc(b.id)}" maxlength="22"/>
         <span><span class="ip">${esc(b.ip)}</span>${b.demo ? ' <span class="rid">(demo)</span>' : ''}<br><span class="rid">${esc(b.receiverId || '')}</span></span>
-        <span class="rid">${share[b.id] || 0}</span>
+        <span class="cnt-cell">${share[b.id] || 0}</span>
         <span class="row-actions">
           <button class="mini" data-act="identify" data-id="${esc(b.id)}">${I.target} Identify</button>
           <button class="mini warn" data-act="remove-feed" data-id="${esc(b.id)}">${I.trash}</button>
@@ -1135,7 +1143,7 @@ function boxesTab() {
       </div>`).join('')}
     </div>
     <div class="card editgrid"><h3>${I.tvone} TVs — ${cfg.tvs.length} screens</h3>
-      <p style="color:var(--muted);font-size:12.5px;margin:-4px 0 8px">Vizio volume &amp; power: enter the TV's IP, press Pair, type the PIN it shows.</p>
+      <p class="card-note">Vizio volume &amp; power: enter the TV's IP, press Pair, type the PIN it shows.</p>
       ${ui.tvscan && ui.tvscan.running
         ? `<div class="scan-status" style="margin-bottom:10px"><span class="spinner"></span> Sweeping the network for SmartCast TVs&hellip;</div>`
         : `<div style="margin-bottom:10px"><button class="mini" data-act="tvscan">${I.radar} Scan for TVs</button></div>`}
@@ -1215,41 +1223,42 @@ function tvCtlCell(t) {
 const SWATCH_COLORS = ['#e60000', '#f8982d', '#3b82f6', '#22c55e', '#a855f7', '#14b8a6', '#eab308', '#ec4899'];
 function zonesTab() {
   return `${setHead('Zones', 'Group TVs by area of the gym. Zones drive the sidebar, group tuning, and scenes.',
-    `<button class="btn outline" data-act="add-zone">${I.plus} Add zone</button>`)}
-    <div class="card">
-      ${cfg.zones.map((z) => `<div class="row-grid" style="grid-template-columns:1.2fr 2fr auto">
+    `<button class="btn primary" data-act="add-zone">${I.plus} Add zone</button>`)}
+    <div class="card editgrid"><h3>${I.zonebox} Zones — ${cfg.zones.length}</h3>
+      <div class="row-grid row-head" style="grid-template-columns:1.2fr 2fr 52px"><span>Name</span><span>Color</span><span></span></div>
+      ${cfg.zones.map((z) => `<div class="row-grid" style="grid-template-columns:1.2fr 2fr 52px">
         <input type="text" value="${esc(z.name)}" data-bind="zone-name" data-id="${esc(z.id)}" maxlength="20"/>
         <span class="swatches">${SWATCH_COLORS.map((c) => `<button class="swatch ${z.color === c ? 'sel' : ''}" style="background:${c}" data-act="zone-color" data-id="${esc(z.id)}" data-color="${c}" title="${c}"></button>`).join('')}</span>
-        <button class="mini warn" data-act="remove-zone" data-id="${esc(z.id)}">Remove</button>
+        <span class="row-actions"><button class="mini warn" data-act="remove-zone" data-id="${esc(z.id)}" title="Remove zone">${I.trash}</button></span>
       </div>`).join('')}
     </div>`;
 }
 
 function channelsTab() {
   return `${setHead('Channels', 'The gym\'s lineup, shown in the tune picker. Numbers use the TV format (like 20.1); each channel carries its accent color through the whole app.',
-    `<button class="btn outline" data-act="add-fav">${I.plus} Add channel</button>`)}
-    <div class="card">
-      <div class="row-grid row-head" style="grid-template-columns:12px 2fr 1fr auto"><span></span><span>Name</span><span>Channel</span><span></span></div>
-      ${cfg.favorites.map((f, i) => `<div class="row-grid" style="grid-template-columns:12px 2fr 1fr auto">
+    `<button class="btn primary" data-act="add-fav">${I.plus} Add channel</button>`)}
+    <div class="card editgrid"><h3>${I.star} Lineup — ${cfg.favorites.length} channels</h3>
+      <div class="row-grid row-head" style="grid-template-columns:12px 2fr 96px 52px"><span></span><span>Name</span><span>Channel</span><span></span></div>
+      ${cfg.favorites.map((f, i) => `<div class="row-grid" style="grid-template-columns:12px 2fr 96px 52px">
         <span class="chan-tick" style="background:${acc(f.chan)}"></span>
         <input type="text" value="${esc(f.name)}" data-bind="fav-name" data-idx="${i}" maxlength="16"/>
-        <input type="text" value="${esc(f.chan)}" data-bind="fav-chan" data-idx="${i}" maxlength="7" style="font-family:var(--mono);width:92px"/>
-        <button class="mini warn" data-act="remove-fav" data-idx="${i}">Remove</button>
+        <input type="text" value="${esc(f.chan)}" data-bind="fav-chan" data-idx="${i}" maxlength="7" style="font-family:var(--mono)"/>
+        <span class="row-actions"><button class="mini warn" data-act="remove-fav" data-idx="${i}" title="Remove channel">${I.trash}</button></span>
       </div>`).join('')}
     </div>`;
 }
 
 function presetsTab() {
   return `${setHead('Scenes', 'One-tap lineups: each scene sets a channel per zone. Blank leaves that zone alone. You can also save the current lineup from the sidebar.',
-    `<button class="btn outline" data-act="add-preset">${I.plus} Add scene</button>`)}
-    ${cfg.presets.map((p, pi) => `<div class="card">
-      <div class="row-grid" style="grid-template-columns:1fr auto;border:0;padding-bottom:2px">
-        <input type="text" value="${esc(p.name)}" data-bind="preset-name" data-idx="${pi}" maxlength="24" style="font-weight:700"/>
-        <button class="mini warn" data-act="remove-preset" data-idx="${pi}">Remove</button>
+    `<button class="btn primary" data-act="add-preset">${I.plus} Add scene</button>`)}
+    ${cfg.presets.map((p, pi) => `<div class="card slim editgrid scene-card">
+      <div class="scene-head">
+        <input type="text" value="${esc(p.name)}" data-bind="preset-name" data-idx="${pi}" maxlength="24" class="scene-name"/>
+        <button class="mini warn" data-act="remove-preset" data-idx="${pi}" title="Remove scene">${I.trash}</button>
       </div>
-      ${cfg.zones.map((z) => `<div class="row-grid" style="grid-template-columns:1fr 1fr">
-        <label style="color:var(--muted);font-size:13px">${esc(z.name)}</label>
-        <input type="text" placeholder="—" value="${esc(p.assignments[z.id] || '')}" data-bind="preset-chan" data-idx="${pi}" data-zone="${esc(z.id)}" maxlength="7" style="font-family:var(--mono);width:92px"/>
+      ${cfg.zones.map((z) => `<div class="field-row" style="padding:7px 0">
+        <label>${esc(z.name)}</label>
+        <input type="text" placeholder="—" value="${esc(p.assignments[z.id] || '')}" data-bind="preset-chan" data-idx="${pi}" data-zone="${esc(z.id)}" maxlength="7" style="font-family:var(--mono);width:92px;text-align:center"/>
       </div>`).join('')}
     </div>`).join('')}`;
 }
@@ -1269,7 +1278,7 @@ function generalTab() {
         <span class="switch"><input type="checkbox" ${cfg.launchFullscreen ? 'checked' : ''} data-bind="launchFullscreen"/><span class="track"></span></span></div>
       <div class="field-row"><label>Sleep screen<span class="hint">Dims to a clock when idle; any tap wakes it</span></label>
         <span class="switch"><input type="checkbox" ${cfg.sleepEnabled ? 'checked' : ''} data-bind="sleepEnabled"/><span class="track"></span></span></div>
-      <div class="field-row"><label>Sleep after</label>
+      <div class="field-row"><label>Sleep after<span class="hint">Minutes idle before the clock takes over</span></label>
         <input type="number" value="${esc(cfg.sleepMinutes)}" data-bind="sleepMinutes" min="1" max="60"/></div>
     </div>
     <div class="card slim"><h3>${I.feed} Feeds &amp; data</h3>
@@ -1335,10 +1344,10 @@ function guideTab() {
         <li>Add your TVs (Track 1&ndash;20, Treadmill 1&ndash;10&hellip;), set each one's zone and feed. Done once, it's saved.</li>
       </ol>
       <p class="note" style="margin-top:10px">Sanity check from any browser on this network: <code>http://BOX-IP:8080/tv/getTuned</code> should return JSON.</p></div>
-    <div class="card guide"><h3>TV volume &amp; power (Vizio SmartCast)</h3>
+    <div class="card guide"><h3>4 · TV volume &amp; power (Vizio SmartCast)</h3>
       <ol>
         <li>These consumer Vizios have no RS-232 port — the old AMX serial path doesn't exist on them. Their network API replaces it, and it's what this app uses.</li>
-        <li>Get each TV on the gym network (built-in WiFi or Ethernet), then find its IP: TV menu <code>Network &rarr; About</code>, or your router's client list. Give them DHCP reservations.</li>
+        <li>Get each TV on the gym network (built-in WiFi or Ethernet), then find its IP (TV menu <code>Network &rarr; About</code> or your router's client list). Give them DHCP reservations.</li>
         <li>In <b>TVs &amp; Feeds</b>, enter the IP next to the TV, press <b>Pair</b>, and type the 4-digit PIN the TV puts on screen. One time per TV.</li>
         <li>Paired TVs get volume, mute, and real panel power — per TV, per zone, per selection, or all at once. New Walmart Vizios pair the same way.</li>
         <li><b>Using the old serial adapters instead:</b> if a TV is wired to one of the AMX's RS-232 adapters, plug that serial line into a USB-to-RS232 dongle on this PC, set the TV's control to <b>COM</b> with its port, and enter the adapter's command bytes in General. Check the adapter's label for its model — that decides the bytes.</li>
@@ -2239,7 +2248,7 @@ setInterval(() => {
   if (q.get('theme')) cfg.theme = q.get('theme');
 
   api.onStatus((m) => { statuses = m; if (!ui.settings) { renderHeader(); renderGrid(); updatePreviewChip(); updatePickerCurrent(); } if (ui.sleeping) renderSleepBits(); });
-  api.onConfig((c) => { cfg = c; renderAll(); });
+  api.onConfig((c) => { cfg = c; if (q.get('theme')) cfg.theme = q.get('theme'); renderAll(); });
   if (api.onAmxData) api.onAmxData((t) => {
     if (!ui.amx) ui.amx = { open: true, buf: [] };
     ui.amx.buf.push(t);

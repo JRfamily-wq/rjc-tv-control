@@ -26,6 +26,9 @@ const argOf = (k) => {
   return a ? a.split('=').slice(1).join('=') : null;
 };
 const shotPath = argOf('shot');
+// Harness truth: on the GPU path, restyled-but-unchanged layers can keep stale
+// tiles in capturePage() on background windows. Software rendering paints honest.
+if (shotPath) { try { app.disableHardwareAcceleration(); } catch { /* noop */ } }
 const devTools = process.argv.includes('--dev');
 // Harness isolation: keep screenshot/test runs out of the real config —
 // a live instance (someone actually using the app) shares userData otherwise.
@@ -741,7 +744,12 @@ function createWindow() {
     },
   });
   win.setMenuBarVisibility(false);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    // harness runs must never be occluded — an occluded window stops
+    // presenting frames and capturePage() returns stale pixels
+    if (shotPath) { try { win.setAlwaysOnTop(true, 'screen-saver'); win.moveTop(); } catch { /* noop */ } }
+  });
   win.on('closed', () => { win = null; });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -758,9 +766,22 @@ function createWindow() {
   // Self-screenshot harness: RJC-TV-Control.exe --shot=C:\out.png [--view=...] [--delay=3000]
   if (shotPath) {
     const delay = Number(argOf('delay') || 3000);
+    const shotJs = argOf('js'); // arbitrary renderer JS before capture — modal states etc.
     win.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         try {
+          if (shotJs) {
+            const code = Buffer.from(shotJs, 'base64').toString('utf8');
+            let jsErr = null, jsResult = null;
+            jsResult = await win.webContents.executeJavaScript(code, true).catch((e) => { jsErr = String(e && e.message || e); return null; });
+            try {
+              const wins = BrowserWindow.getAllWindows().map((w) => ({ id: w.id, url: w.webContents.getURL().slice(-60), isWin: w === win }));
+              fs.writeFileSync(shotPath + '.jslog', JSON.stringify({ code, jsErr, jsResult, wins }));
+            } catch (e) { try { fs.writeFileSync(shotPath + '.jslog', 'logfail:' + e.message); } catch { /* noop */ } }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          try { win.moveTop(); win.webContents.invalidate(); } catch { /* noop */ }
+          await new Promise((r) => setTimeout(r, 400));
           const img = await win.webContents.capturePage();
           fs.writeFileSync(shotPath, img.toPNG());
         } catch { /* leave no file on failure */ }
