@@ -888,3 +888,8 @@ select { appearance: none; padding-right: 30px; background-image: url("data:imag
 /* staff code: masked at rest, revealed while editing */
 input[data-bind="settingsCode"] { -webkit-text-security: disc; }
 input[data-bind="settingsCode"]:focus { -webkit-text-security: none; }
+
+.set-credit {
+  padding: 12px 12px 4px; font-size: 10px; color: var(--side-muted);
+  letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.8;
+}

@@ -853,6 +853,7 @@ function settingsHtml() {
         `<button class="set-nav ${ui.settingsTab === id ? 'active' : ''}" data-act="settings-tab" data-id="${id}">${icon}<span class="lbl">${label}</span>${navCnt[id] != null ? `<span class="cnt">${navCnt[id]}</span>` : ''}</button>`).join('')}
       <div class="spacer"></div>
       <button class="set-nav" data-act="close-settings">${I.arrl}<span class="lbl">Back to dashboard</span></button>
+      <div class="set-credit">Built by Jacob Smolinsky</div>
     </div>
     <div class="set-body">${settingsBody()}</div>
   </div>`;
@@ -1288,6 +1289,13 @@ function generalTab() {
         <input type="number" value="${esc(cfg.pollSeconds)}" data-bind="pollSeconds" min="5" max="120"/></div>
       <div class="field-row"><label>Identify channel</label>
         <input type="text" value="${esc(cfg.identifyChannel)}" data-bind="identifyChannel" maxlength="7" style="font-family:var(--mono);width:92px"/></div>
+    </div>
+    <div class="card slim"><h3>${I.copy} Backup &amp; transfer</h3>
+      <p class="card-note">Everything in one file — TVs, feeds, zones, scenes, channels, audio setup, pairings, and the staff code. Export here, copy the file over, Import on the other touchscreen.</p>
+      <div class="trow">
+        <button class="mini" data-act="cfg-export">Export all settings&hellip;</button>
+        <button class="mini" data-act="cfg-import">Import settings&hellip;</button>
+      </div>
     </div>
     ${cardClps('preview', I.pip, 'Live corner preview', `
       <div class="field-row"><label>Show preview window<span class="hint">Real video from one feed, via a USB HDMI capture stick plugged into this PC</span></label>
