@@ -344,9 +344,9 @@ function renderMix() {
   if (!total) { bar.hidden = true; return; }
   bar.hidden = false;
   const segs = entries.map(([chan, n]) =>
-    `<i style="width:${(n / total * 100).toFixed(2)}%;background:${acc(chan)}" title="${esc(favName(chan) || 'CH ' + chan)} — ${n} TV${n === 1 ? '' : 's'}"></i>`).join('');
-  const top = entries.slice(0, 4).map(([chan, n]) =>
-    `<span class="mix-chip"><i style="background:${acc(chan)}"></i>${esc(favName(chan) || 'CH ' + chan)}&nbsp;<b>${n}</b></span>`).join('');
+    `<i style="width:${(n / total * 100).toFixed(2)}%;background:${acc(chan)}" title="${esc(favName(chan) || 'CH ' + chan)}"></i>`).join('');
+  const top = entries.slice(0, 4).map(([chan]) =>
+    `<span class="mix-chip"><i style="background:${acc(chan)}"></i>${esc(favName(chan) || 'CH ' + chan)}</span>`).join('');
   const more = entries.length > 4 ? `<span class="mix-more">+${entries.length - 4} more</span>` : '';
   bar.innerHTML = `<span class="mix-label">Now showing</span><div class="mix-bar">${segs}</div><div class="mix-legend">${top}${more}</div>`;
 }
@@ -457,7 +457,7 @@ function renderGrid() {
     const tune = f.house ? '' : String(f.sat != null ? f.sat : f.chan);
     return `<button class="cchan ${on ? 'on' : ''} ${f.house ? 'house' : ''}" data-act="hero-chan" data-chan="${esc(tune)}" data-name="${esc(f.name)}" style="--acc:${acc(f.chan)}" title="${f.house ? 'House channel — plays on wall CH 2.1 straight from the building feed' : `Send every TV to ${esc(f.name)}`}">
       ${chanLogo(f.chan, f.name)}
-      <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>${n} TV${n === 1 ? '' : 's'}</span>` : ''}</span>
+      <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>On</span>` : ''}</span>
     </button>`;
   }).join('');
   grid.innerHTML = `<div class="hero-grid">${tiles}</div>`;
