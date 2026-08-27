@@ -1,7 +1,7 @@
 {
   "name": "rjc-gym-tv",
   "productName": "RJC TV Control",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "R.J. Corman gym TV control - DirecTV SHEF dashboard",
   "private": true,
   "main": "electron/main.cjs",
@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.drew.rjcgymtv",
     "productName": "RJC TV Control",
+    "copyright": "© 2026 R.J. Corman Railroad Group · built by Jacob Smolinsky",
     "directories": { "output": "release" },
     "files": [
       "app/**",
