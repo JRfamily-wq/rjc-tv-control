@@ -101,6 +101,8 @@ svg { display: block; }
   padding: 0 12px 14px;
   color: var(--side-text);
   overflow-y: auto;
+  /* sits above canvas content so the train ducks behind it like a tunnel */
+  position: relative; z-index: 5;
 }
 /* one continuous brand keyline across the whole window top */
 body::before {
