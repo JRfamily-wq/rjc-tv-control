@@ -26,7 +26,7 @@ const DEFAULT_FAVORITES = [
   { name: 'TWC',      chan: '18.1', sat: '362' },
   { name: 'E!',       chan: '19.1', sat: '236' },
   { name: 'ESPN',     chan: '20.1', sat: '206' },
-  { name: 'CMT',      chan: '21.1', sat: '235' },
+  { name: 'CMT',      chan: '21.1', sat: '327' },
   { name: 'HIST',     chan: '22.1', sat: '269' },
 ];
 
@@ -125,6 +125,10 @@ function load() {
       });
     }
     if (cfg.identifyChannel === '18.1') cfg.identifyChannel = '362'; // wall number → real sat channel
+    // corrected sat number: CMT is 327 on DirecTV (was mis-seeded as 235)
+    if (Array.isArray(cfg.favorites)) {
+      cfg.favorites = cfg.favorites.map((f) => (String(f.chan) === '21.1' && String(f.sat) === '235') ? { ...f, sat: '327' } : f);
+    }
     if (raw.schema !== SCHEMA) save();
   } catch {
     cfg = defaults();

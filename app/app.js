@@ -452,16 +452,35 @@ function renderGrid() {
   }
   const top = [...weights.entries()].sort((a, b) => b[1] - a[1])[0];
   const activeChan = top && top[1] >= liveWeight / 2 ? top[0] : null;
-  const tiles = (cfg.favorites || []).map((f) => {
+  // what's actually airing per wall channel, from live receiver readbacks
+  const nowTitle = new Map();
+  for (const f of shownFeeds()) {
+    const st = statuses[f.id];
+    if (st && st.online && st.mode === 0 && st.chan && st.title) nowTitle.set(wallOf(st.chan), st.title);
+  }
+  const tiles = (cfg.favorites || []).map((f, i) => {
     const on = activeChan != null && String(f.chan) === String(activeChan);
     const n = weights.get(String(f.chan)) || 0;
     const tune = f.house ? '' : String(f.sat != null ? f.sat : f.chan);
-    return `<button class="cchan ${on ? 'on' : ''} ${f.house ? 'house' : ''}" data-act="hero-chan" data-chan="${esc(tune)}" data-name="${esc(f.name)}" style="--acc:${acc(f.chan)}" title="${f.house ? 'House channel — plays on wall CH 2.1 straight from the building feed' : `Send every TV to ${esc(f.name)}`}">
+    const playing = n ? nowTitle.get(String(f.chan)) : null;
+    return `<button class="cchan ${on ? 'on' : ''} ${f.house ? 'house' : ''}" data-act="hero-chan" data-chan="${esc(tune)}" data-name="${esc(f.name)}" style="--acc:${acc(f.chan)};--i:${i}" title="${f.house ? 'House channel — plays on wall CH 2.1 straight from the building feed' : `Send every TV to ${esc(f.name)}`}">
       ${chanLogo(f.chan, f.name)}
+      ${playing ? `<span class="cc-now">${esc(playing)}</span>` : ''}
       <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>On</span>` : ''}</span>
     </button>`;
   }).join('');
-  grid.innerHTML = `<div class="hero-grid">${tiles}</div>`;
+  // channels held back for the treadmills — visible so staff know what's parked
+  const held = shownFeeds().filter((f) => f.reserved);
+  const heldHtml = held.length ? `<div class="held">
+      <span class="held-lbl">${I.target}<span>Held for treadmills</span></span>
+      ${held.map((f) => {
+        const eff = effChanOf(f);
+        const chan = f.reservedChan || (eff.chan ? wallOf(eff.chan) : '');
+        const nm = chan ? (favName(chan) || 'CH ' + chan) : 'Not set';
+        return `<button class="held-chip" data-act="feed-pill" data-id="${esc(f.id)}" style="--acc:${chan ? acc(chan) : 'var(--muted)'}" title="Change this held channel"><i></i>${esc(nm)}${chan ? `<b>${esc(chan)}</b>` : ''}</button>`;
+      }).join('')}
+    </div>` : '';
+  grid.innerHTML = `<div class="hero-grid">${tiles}</div>${heldHtml}`;
 }
 
 function renderGridOld() {
@@ -2227,7 +2246,11 @@ setInterval(() => {
   cfg = s.config;
   statuses = s.statuses;
 
-  // screenshot-harness knobs: ?view=picker|settings&tab=...&sel=1&theme=light&preview=1&click=selector
+  // entrance animations play once at boot, not on every status re-render
+  document.body.classList.add('boot');
+  setTimeout(() => document.body.classList.remove('boot'), 1600);
+
+  // screenshot-harness knobs: ?view=picker|settings&sel=1&theme=light&preview=1&click=selector
   const q = new URLSearchParams(location.search);
   applyTheme(q.get('theme') || cfg.theme);
   if (q.get('theme')) cfg.theme = q.get('theme');
@@ -2368,3 +2391,19 @@ function decodeDiString(text) {
   else if (type === 0x8d) valueNote += ` ${(value / 65536).toFixed(0)}%`;
   return { addr, param, value, valueNote };
 }
+
+// Material-style touch ripple on the app's interactive surfaces.
+const RIPPLE_SEL = '.btn, .mini, .iconbtn, .cchan, .fav-btn, .pad-key, .st, .fpill, .vol-mute, .set-nav, .side-row, .tt, .held-chip, .swatch, .demo-chip';
+document.addEventListener('pointerdown', (e) => {
+  const host = e.target.closest(RIPPLE_SEL);
+  if (!host || host.disabled) return;
+  const r = host.getBoundingClientRect();
+  const d = Math.max(r.width, r.height) * 2.1;
+  const s = document.createElement('span');
+  s.className = 'ripple';
+  s.style.width = s.style.height = d + 'px';
+  s.style.left = (e.clientX - r.left - d / 2) + 'px';
+  s.style.top = (e.clientY - r.top - d / 2) + 'px';
+  host.appendChild(s);
+  setTimeout(() => s.remove(), 650);
+});
