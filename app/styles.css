@@ -101,8 +101,9 @@ svg { display: block; }
   padding: 0 12px 14px;
   color: var(--side-text);
   overflow-y: auto;
-  /* sits above canvas content so the train ducks behind it like a tunnel */
-  position: relative; z-index: 5;
+  /* sits above canvas content so the train ducks behind it like a tunnel;
+     translateZ forces its own compositor layer so the GPU respects the order */
+  position: relative; z-index: 2; transform: translateZ(0);
 }
 /* one continuous brand keyline across the whole window top */
 body::before {
@@ -217,7 +218,8 @@ body::before {
 /* ================= canvas ================= */
 .canvas {
   display: flex; flex-direction: column; min-width: 0; height: 100vh;
-  background: var(--bg);
+  /* own stacking context below the sidebar — everything inside (train incl.) stays under it */
+  position: relative; z-index: 1;
 }
 .canv-head {
   display: flex; align-items: center; gap: 16px;
