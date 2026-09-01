@@ -727,9 +727,10 @@ function createWindow() {
     title: 'RJC TV Control',
     backgroundColor: cfg.theme === 'light' ? '#f3f3f1' : '#0c0d10',
     titleBarStyle: 'hidden',
+    // the caption corner wears the brand red so the top keyline reads continuous
     titleBarOverlay: {
-      color: cfg.theme === 'light' ? '#f3f3f1' : '#0c0d10',
-      symbolColor: cfg.theme === 'light' ? '#17191c' : '#f2f3f5',
+      color: '#e11414',
+      symbolColor: '#ffffff',
       height: 36,
     },
     autoHideMenuBar: true,

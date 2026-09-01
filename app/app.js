@@ -166,11 +166,8 @@ function applyTheme(t) {
   root.style.display = 'none';
   void root.offsetHeight;
   root.style.display = '';
-  if (api.setOverlay) {
-    api.setOverlay(theme === 'light'
-      ? { color: '#f3f3f1', symbolColor: '#17191c' }
-      : { color: '#0c0d10', symbolColor: '#f2f3f5' });
-  }
+  // brand-red caption cap in both themes — continuous with the top keyline
+  if (api.setOverlay) api.setOverlay({ color: theme === 'light' ? '#d31212' : '#e11414', symbolColor: '#ffffff' });
 }
 
 function shownTvs() {
@@ -216,16 +213,14 @@ function toast(msg, kind = 'ok', ms = 2800) {
 
 /* ---------- actions ---------- */
 async function doTuneFeeds(feedIds, chan, label) {
-  const affected = feedIds.reduce((s, id) => s + feedTvs(id).length, 0);
   const name = favName(chan) || `channel ${chan}`;
   const r = await api.tune({ boxIds: feedIds, chan });
-  const what = affected ? `${affected} TV${affected === 1 ? '' : 's'}` : `${feedIds.length} group${feedIds.length === 1 ? '' : 's'}`;
   if (r.fail.length === 0) {
-    toast(`${label || what} → ${name} (${chan})`);
+    toast(`${label || 'TVs'} → ${name}`);
   } else if (r.ok.length === 0) {
     toast(`Couldn't reach ${r.fail.length} feed${r.fail.length === 1 ? '' : 's'}`, 'err');
   } else {
-    toast(`${r.ok.length} tuned to ${name}; ${r.fail.length} didn't respond`, 'warn');
+    toast(`Tuned to ${name}; ${r.fail.length} feed${r.fail.length === 1 ? '' : 's'} didn't respond`, 'warn');
   }
 }
 
@@ -657,10 +652,7 @@ function updatePickerCurrent() {
 function pickerHtml() {
     const singleFeed = ui.picker.tvIds.length === 1 ? feedOf(ui.picker.tvIds[0]) : null;
     const current = singleFeed ? effChanOf(singleFeed).chan : null;
-    const singleN = singleFeed ? feedTvs(singleFeed.id).length : 0;
-    const shareNote = singleFeed && singleN
-      ? ` &mdash; ${singleN} TV${singleN === 1 ? '' : 's'} follow this group`
-      : '';
+    const shareNote = '';
     return `<div class="overlay" data-act="overlay">
       <div class="sheet">
         <div class="sheet-head">
@@ -1406,9 +1398,8 @@ document.addEventListener('click', async (e) => {
       }
       const feeds = shownFeeds().filter((f) => !f.reserved);
       if (!feeds.length) { toast('No feeds to tune (all reserved?)', 'warn'); break; }
-      const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
-      const label = ui.filter === 'all' ? `Whole gym — ${tvN || feeds.length} TVs`
-        : `${ui.filter === 'none' ? 'Unzoned' : (zoneOf(ui.filter) || {}).name} — ${tvN || feeds.length} TVs`;
+      const label = ui.filter === 'all' ? 'Whole gym'
+        : `${ui.filter === 'none' ? 'Unzoned' : (zoneOf(ui.filter) || {}).name}`;
       gatedTune(() => {
         btn.classList.add('tuning');
         setTimeout(() => btn.classList.remove('tuning'), 900);
@@ -1432,10 +1423,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'tune-shown': {
-      const shown = shownFeeds();
-      const tvN = shown.reduce((s, f) => s + feedTvs(f.id).length, 0);
-      const label = ui.filter === 'all' ? `all ${tvN || shown.length} TVs`
-        : `${ui.filter === 'none' ? 'unzoned' : (zoneOf(ui.filter) || {}).name} — ${tvN || shown.length} TVs`;
+      const shown = shownFeeds().filter((f) => !f.reserved);
+      const label = ui.filter === 'all' ? 'Whole gym'
+        : `${ui.filter === 'none' ? 'Unzoned' : (zoneOf(ui.filter) || {}).name}`;
       gatedTune(() => openPicker(shown.map((f) => f.id), label));
       break;
     }
@@ -1443,8 +1433,7 @@ document.addEventListener('click', async (e) => {
       const z = zoneOf(btn.dataset.id);
       const feeds = cfg.boxes.filter((b) => feedZone(b) === btn.dataset.id);
       if (z && feeds.length) {
-        const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
-        gatedTune(() => openPicker(feeds.map((f) => f.id), `${z.name} — ${tvN} TVs`));
+        gatedTune(() => openPicker(feeds.map((f) => f.id), z.name));
       }
       break;
     }
