@@ -437,7 +437,8 @@ function renderGrid() {
     return;
   }
   // One tap sends the whole room there — the dashboard IS the channel picker.
-  const shown = shownFeeds();
+  // Reserved feeds (e.g. the treadmill channels) are held back from the sweep.
+  const shown = shownFeeds().filter((f) => !f.reserved);
   const weights = new Map(); // chan -> tv-weighted count of feeds currently there
   let liveWeight = 0;
   for (const f of shown) {
@@ -1098,13 +1099,17 @@ function boxesTab() {
     scanAction)}
     ${foundHtml}
     <div class="card editgrid"><h3>${I.feed} Feeds — ${cfg.boxes.length} receivers</h3>
-      <div class="row-grid row-head" style="grid-template-columns:1fr 1.2fr 72px 148px"><span>Name</span><span>Address</span><span style="text-align:right">TVs on it</span><span></span></div>
-      ${cfg.boxes.map((b) => `<div class="row-grid" style="grid-template-columns:1fr 1.2fr 72px 148px">
+      <p class="card-note">Turn on <b>Reserve</b> to keep a receiver off the whole-gym &ldquo;Tune all&rdquo; button &mdash; use it for the treadmill channels so they hold while the rest of the gym changes. Set the reserved channel here, then tune the treadmill TVs to it at the set.</p>
+      <div class="row-grid row-head" style="grid-template-columns:1fr 1fr 46px 66px auto"><span>Name</span><span>Address</span><span style="text-align:right">TVs</span><span style="text-align:center">Reserve</span><span></span></div>
+      ${cfg.boxes.map((b) => `<div class="row-grid" style="grid-template-columns:1fr 1fr 46px 66px auto">
         <input type="text" value="${esc(b.name)}" data-bind="feed-name" data-id="${esc(b.id)}" maxlength="22"/>
         <span><span class="ip">${esc(b.ip)}</span>${b.demo ? ' <span class="rid">(demo)</span>' : ''}<br><span class="rid">${esc(b.receiverId || '')}</span></span>
         <span class="cnt-cell">${share[b.id] || 0}</span>
+        <span class="switch" style="justify-self:center"><input type="checkbox" ${b.reserved ? 'checked' : ''} data-bind="feed-reserved" data-id="${esc(b.id)}"/><span class="track"></span></span>
         <span class="row-actions">
-          <button class="mini" data-act="identify" data-id="${esc(b.id)}">${I.target} Identify</button>
+          ${b.reserved
+            ? `<input type="text" value="${esc(b.reservedChan || '')}" placeholder="ch" data-bind="feed-rchan" data-id="${esc(b.id)}" style="width:52px;font-family:var(--mono)"/><button class="mini" data-act="feed-set" data-id="${esc(b.id)}">Set</button>`
+            : `<button class="mini" data-act="identify" data-id="${esc(b.id)}">${I.target} Identify</button>`}
           <button class="mini warn" data-act="remove-feed" data-id="${esc(b.id)}">${I.trash}</button>
         </span>
       </div>`).join('')}
@@ -1380,8 +1385,8 @@ document.addEventListener('click', async (e) => {
         toast(`${btn.dataset.name || 'RJC'} plays on wall CH 2.1 straight from the building feed — TVs on 2.1 always show it`, 'warn', 4200);
         break;
       }
-      const feeds = shownFeeds();
-      if (!feeds.length) { toast('No feeds configured yet', 'warn'); break; }
+      const feeds = shownFeeds().filter((f) => !f.reserved);
+      if (!feeds.length) { toast('No feeds to tune (all reserved?)', 'warn'); break; }
       const tvN = feeds.reduce((s, f) => s + feedTvs(f.id).length, 0);
       const label = ui.filter === 'all' ? `Whole gym — ${tvN || feeds.length} TVs`
         : `${ui.filter === 'none' ? 'Unzoned' : (zoneOf(ui.filter) || {}).name} — ${tvN || feeds.length} TVs`;
@@ -1395,6 +1400,16 @@ document.addEventListener('click', async (e) => {
     case 'feed-pill': {
       const feed = feedOf(btn.dataset.id);
       if (feed) gatedTune(() => openPicker([feed.id], feed.name));
+      break;
+    }
+    case 'feed-set': {
+      const id = btn.dataset.id;
+      const inp = document.querySelector(`[data-bind="feed-rchan"][data-id="${id}"]`);
+      const chan = ((inp && inp.value) || '').trim();
+      if (!chan || !CHAN_RE.test(chan)) { toast('Enter a channel number for this feed first', 'warn'); break; }
+      const b = feedOf(id);
+      await saveCfg({ boxes: cfg.boxes.map((x) => x.id === id ? { ...x, reservedChan: chan } : x) });
+      doTuneFeeds([id], satOf(chan), b ? b.name : 'feed');
       break;
     }
     case 'tune-shown': {
@@ -1995,6 +2010,10 @@ document.addEventListener('change', async (e) => {
     await saveCfg({ serial: { ...cfg.serial, commands: { ...(cfg.serial || {}).commands, [action]: el.value.trim() } } });
   } else if (bind === 'feed-name') {
     await saveCfg({ boxes: cfg.boxes.map((b) => b.id === el.dataset.id ? { ...b, name: el.value.trim() || b.name } : b) });
+  } else if (bind === 'feed-reserved') {
+    await saveCfg({ boxes: cfg.boxes.map((b) => b.id === el.dataset.id ? { ...b, reserved: el.checked } : b) });
+  } else if (bind === 'feed-rchan') {
+    await saveCfg({ boxes: cfg.boxes.map((b) => b.id === el.dataset.id ? { ...b, reservedChan: el.value.trim() } : b) });
   } else if (bind === 'zone-name') {
     await saveCfg({ zones: cfg.zones.map((z) => z.id === el.dataset.id ? { ...z, name: el.value.trim() || z.name } : z) });
   } else if (bind === 'fav-name' || bind === 'fav-chan') {
@@ -2151,17 +2170,8 @@ let lastActivity = Date.now();
   document.addEventListener(ev, () => { lastActivity = Date.now(); }, { capture: true, passive: true }));
 
 function sleepStatusText() {
-  let live = 0;
-  const counts = new Map();
-  for (const f of cfg.boxes) {
-    const w = Math.max(1, feedTvs(f.id).length);
-    const eff = effChanOf(f);
-    if (eff.st && (!eff.st.online || eff.st.mode === 1)) continue;
-    live += w;
-    if (eff.chan) counts.set(eff.chan, (counts.get(eff.chan) || 0) + w);
-  }
-  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-  return `${live} TV${live === 1 ? '' : 's'} live${top && top[1] >= 2 ? ` · mostly ${favName(top[0]) || 'CH ' + top[0]}` : ''}`;
+  const down = cfg.boxes.filter((b) => statuses[b.id] && !statuses[b.id].online).length;
+  return down > 0 ? 'Some feeds need attention' : 'All systems healthy';
 }
 
 function renderSleepBits() {
