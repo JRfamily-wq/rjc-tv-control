@@ -56,6 +56,7 @@ async function refreshDevices() {
    24px grid, 1.8 stroke, square caps, miter joins — industrial control-room set. */
 const ic = (paths, extra) => `<svg class="ic${extra ? ' ' + extra : ''}" viewBox="0 0 24 24">${paths}</svg>`;
 const I = {
+  menu: ic('<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>'),
   power: ic('<path d="M12 3.2v7.3"/><path d="M16.9 6.2a7.2 7.2 0 1 1-9.8 0"/>'),
   videowall: ic('<rect x="3" y="4.5" width="18" height="14" rx="1.5"/><path d="M12 4.5v14M3 11.5h18"/>'),
   tvone: ic('<rect x="3" y="5" width="18" height="12.5" rx="1.5"/><path d="M12 17.5v3M8 20.5h8"/>'),
@@ -371,8 +372,18 @@ function renderHeader() {
   $('#selectToggle').textContent = ui.selecting ? 'Done' : 'Select';
   $('#fsBtn').innerHTML = I.brackets;
   $('#themeBtn').innerHTML = I.contrast;
+  $('#navBtn').innerHTML = I.menu;
   $('#settingsRow').innerHTML = `${I.sliders}<span class="lbl">Settings</span>`;
+  document.querySelector('.shell').classList.toggle('nav-hidden', !!cfg.navCollapsed);
 }
+
+// kiosk = fullscreen: the channel grid stretches to use the whole screen
+let kioskTimer = null;
+async function syncKiosk() {
+  const fs = await api.isFullscreen();
+  document.body.classList.toggle('kiosk', !!fs);
+}
+window.addEventListener('resize', () => { clearTimeout(kioskTimer); kioskTimer = setTimeout(syncKiosk, 180); })
 
 /* ---------- render: grid ---------- */
 function feedTileHtml(feed) {
@@ -1385,6 +1396,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'chip': ui.filter = btn.dataset.id; renderSideNav(); renderHeader(); renderGrid(); break;
+    case 'toggle-nav':
+      await saveCfg({ navCollapsed: !cfg.navCollapsed });
+      break;
     case 'toggle-select':
       ui.selecting = !ui.selecting;
       if (!ui.selecting) ui.selected.clear();
@@ -2238,6 +2252,7 @@ setInterval(() => {
   // entrance animations play once at boot, not on every status re-render
   document.body.classList.add('boot');
   setTimeout(() => document.body.classList.remove('boot'), 1600);
+  syncKiosk();
 
   // screenshot-harness knobs: ?view=picker|settings&sel=1&theme=light&preview=1&click=selector
   const q = new URLSearchParams(location.search);
