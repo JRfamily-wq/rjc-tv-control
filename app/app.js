@@ -475,18 +475,7 @@ function renderGrid() {
       <span class="cc-foot"><span class="cc-num">CH ${esc(f.chan)}</span>${f.house ? '<span class="cc-house">HOUSE</span>' : ''}${n ? `<span class="cc-live"><i></i>On</span>` : ''}</span>
     </button>`;
   }).join('');
-  // channels held back for the treadmills — visible so staff know what's parked
-  const held = shownFeeds().filter((f) => f.reserved);
-  const heldHtml = held.length ? `<div class="held">
-      <span class="held-lbl">${I.target}<span>Held for treadmills</span></span>
-      ${held.map((f) => {
-        const eff = effChanOf(f);
-        const chan = f.reservedChan || (eff.chan ? wallOf(eff.chan) : '');
-        const nm = chan ? (favName(chan) || 'CH ' + chan) : 'Not set';
-        return `<button class="held-chip" data-act="feed-pill" data-id="${esc(f.id)}" style="--acc:${chan ? acc(chan) : 'var(--muted)'}" title="Change this held channel"><i></i>${esc(nm)}${chan ? `<b>${esc(chan)}</b>` : ''}</button>`;
-      }).join('')}
-    </div>` : '';
-  grid.innerHTML = `<div class="hero-grid">${tiles}</div>${heldHtml}`;
+  grid.innerHTML = `<div class="hero-grid">${tiles}</div>`;
 }
 
 function renderGridOld() {

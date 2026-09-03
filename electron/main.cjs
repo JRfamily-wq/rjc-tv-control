@@ -718,11 +718,11 @@ ipcMain.handle('win:isFullscreen', () => (win ? win.isFullScreen() : false));
 function createWindow() {
   const cfg = store.load();
   win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: Number(argOf('w')) || 1280,
+    height: Number(argOf('h')) || 800,
     useContentSize: true,
-    minWidth: 1000,
-    minHeight: 660,
+    minWidth: shotPath ? 400 : 1000,
+    minHeight: shotPath ? 300 : 660,
     show: false,
     title: 'RJC TV Control',
     backgroundColor: cfg.theme === 'light' ? '#f3f3f1' : '#0c0d10',

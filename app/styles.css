@@ -1001,14 +1001,7 @@ input[data-bind="settingsCode"]:focus { -webkit-text-security: none; }
 .held-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--acc); }
 .held-chip b { font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--muted); }
 
-/* railroad-track divider under the header - two rails and ties, very quiet */
 .canv-head { position: relative; }
-.canv-head::after {
-  content: ""; position: absolute; left: 24px; right: 24px; bottom: 2px; height: 8px; opacity: 0.5;
-  background:
-    linear-gradient(transparent 0 1px, var(--hairline-strong) 1px 2px, transparent 2px 6px, var(--hairline-strong) 6px 7px, transparent 7px),
-    repeating-linear-gradient(90deg, var(--hairline) 0 2px, transparent 2px 16px);
-}
 
 /* volume slider: Material thumb halo while dragging */
 .vol-slider:active::-webkit-slider-thumb { box-shadow: 0 0 0 10px color-mix(in srgb, var(--red) 14%, transparent), 0 2px 9px rgba(0, 0, 0, 0.4); }
@@ -1035,18 +1028,7 @@ html[data-theme="light"] { --dotc: rgba(17, 20, 24, 0.045); }
     var(--bg);
 }
 
-/* a storybook Corman steam train chuffs down the header track every so often */
-.train {
-  position: absolute; bottom: 1px; left: 100%; width: 148px; height: 34px;
-  pointer-events: none; z-index: 1;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 46'><g stroke='%23262b33' stroke-width='1.6'><circle cx='30' cy='9' r='4.2' fill='%239aa0a8' stroke='none' opacity='.75'/><circle cx='38' cy='4.5' r='3.1' fill='%239aa0a8' stroke='none' opacity='.55'/><circle cx='45' cy='2' r='2.1' fill='%239aa0a8' stroke='none' opacity='.4'/><path d='M13 34 L3 43 L13 43 Z' fill='%233a4048'/><rect x='21' y='9' width='7' height='10' fill='%233a4048'/><rect x='18' y='7.5' width='13' height='3.5' rx='1.5' fill='%23262b33' stroke='none'/><rect x='11' y='18' width='44' height='17' rx='3' fill='%23e11414'/><path d='M33 18 a4 4 0 0 1 8 0 Z' fill='%23f0f2f5' stroke='none'/><path d='M43 18 a4 4 0 0 1 8 0 Z' fill='%23f0f2f5' stroke='none'/><rect x='52' y='10' width='24' height='25' rx='2' fill='%23e11414'/><rect x='49' y='6.5' width='30' height='5' rx='2' fill='%233a4048'/><rect x='56' y='14' width='16' height='13' rx='1.5' fill='%23cfe3ee'/><path d='M58 26 L69 15' stroke='%23ffffff' stroke-width='2.4' opacity='.7'/><circle cx='44' cy='39' r='6.4' fill='%233a4048'/><circle cx='44' cy='39' r='2.3' fill='%2379818f' stroke='none'/><circle cx='22' cy='40.5' r='4.6' fill='%233a4048'/><circle cx='22' cy='40.5' r='1.7' fill='%2379818f' stroke='none'/><path d='M22 40.5 L44 39' stroke='%2379818f' stroke-width='2'/><rect x='76' y='30' width='8' height='3.5' fill='%23565c66' stroke='none'/><rect x='86' y='13' width='50' height='18' rx='2' fill='%23565c66'/><rect x='84' y='9' width='54' height='5' rx='2' fill='%233a4048'/><rect x='92' y='17' width='13' height='9' rx='1' fill='%23cfe3ee'/><rect x='111' y='17' width='13' height='9' rx='1' fill='%23cfe3ee'/><path d='M86 31 h50 v7 h-50 Z' fill='%233a4048'/><path d='M92 31 v7 M98 31 v7 M104 31 v7 M110 31 v7 M116 31 v7 M122 31 v7 M128 31 v7' stroke='%23565c66' stroke-width='1.4'/><circle cx='96' cy='41' r='4.6' fill='%233a4048'/><circle cx='96' cy='41' r='1.7' fill='%2379818f' stroke='none'/><circle cx='126' cy='41' r='4.6' fill='%233a4048'/><circle cx='126' cy='41' r='1.7' fill='%2379818f' stroke='none'/><rect x='136' y='30' width='8' height='3.5' fill='%23565c66' stroke='none'/><rect x='146' y='13' width='50' height='18' rx='2' fill='%23565c66'/><rect x='144' y='9' width='54' height='5' rx='2' fill='%233a4048'/><rect x='152' y='17' width='13' height='9' rx='1' fill='%23cfe3ee'/><rect x='171' y='17' width='13' height='9' rx='1' fill='%23cfe3ee'/><path d='M146 31 h50 v7 h-50 Z' fill='%233a4048'/><path d='M152 31 v7 M158 31 v7 M164 31 v7 M170 31 v7 M176 31 v7 M182 31 v7 M188 31 v7' stroke='%23565c66' stroke-width='1.4'/><circle cx='156' cy='41' r='4.6' fill='%233a4048'/><circle cx='156' cy='41' r='1.7' fill='%2379818f' stroke='none'/><circle cx='186' cy='41' r='4.6' fill='%233a4048'/><circle cx='186' cy='41' r='1.7' fill='%2379818f' stroke='none'/></g></svg>") no-repeat center / contain;
-  animation: choo 38s linear 4s infinite;
-}
-@keyframes choo {
-  0% { left: 100%; }
-  40% { left: -170px; }
-  100% { left: -170px; }
-}
+/* (train retired) */
 
 /* hero tile micro-interactions */
 .cchan .cl { transition: transform 0.3s var(--ease); }
@@ -1071,3 +1053,14 @@ html[data-theme="light"] { --dotc: rgba(17, 20, 24, 0.045); }
 .kiosk .cc-foot { flex: none; }
 .kiosk .cc-now { margin: 0 8px; max-width: 92%; }
 .kiosk .held { margin-top: 16px; flex: none; }
+
+/* small form factors: tiles keep a readable floor and the grid scrolls
+   instead of squishing; kiosk rows never collapse below a legible height */
+.hero-grid { grid-template-columns: repeat(auto-fill, minmax(186px, 1fr)); }
+.kiosk .hero-grid { grid-auto-rows: minmax(150px, 1fr); }
+.kiosk .cc-num { font-size: 12px; }
+.kiosk .cc-now { font-size: 11px; }
+@media (max-width: 1100px) {
+  .cc-now { display: none; }
+  .cchan .cl { padding: 4px 4px 0; }
+}
