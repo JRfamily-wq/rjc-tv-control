@@ -6,9 +6,13 @@
 #   RJC-TV-Control-arm64.zip
 name: Release
 
+# Two ways to cut a release: push a v* tag, or run this workflow manually
+# (Actions → Release → Run workflow) — the manual path tags the current
+# commit with v<package.json version> for you.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,6 +22,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -34,13 +40,21 @@ jobs:
         shell: bash
         run: npx electron-builder --win portable zip --arm64 --publish never "-c.win.artifactName=RJC-TV-Control-arm64.zip" "-c.portable.artifactName=RJC-TV-Control-arm64.exe"
 
-      - name: Release title from the tagged commit
+      - name: Tag and release title
         id: meta
         shell: bash
-        run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+        # Tag from the pushed ref, or v<version> on a manual run; the release
+        # is titled after the version's commit subject, trimmed at the em-dash.
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then TAG="$GITHUB_REF_NAME"; else TAG="v$(node -p "require('./package.json').version")"; fi
+          SUBJECT=$(git log -300 --pretty=%s | grep -F -m1 "$TAG:" || true)
+          SUBJECT="${SUBJECT:-$TAG}"
+          SUBJECT="${SUBJECT%% — *}"
+          { echo "tag=$TAG"; echo "subject=$SUBJECT"; } >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.subject }}
           body: 'ZIP recommended; unzip into C:\RJC-TV.'
           generate_release_notes: true
