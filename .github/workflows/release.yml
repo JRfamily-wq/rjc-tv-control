@@ -1,0 +1,51 @@
+# Push a v* tag and this builds the four release assets on a Windows runner
+# and publishes the GitHub Release — the same set every release has carried:
+#   RJC-TV-Control.exe        (x64 portable)
+#   RJC-TV-Control-arm64.exe  (arm64 portable)
+#   RJC-TV-Control-x64.zip    (unpacked app — Defender-friendly)
+#   RJC-TV-Control-arm64.zip
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build x64 (portable exe + zip)
+        shell: bash
+        run: npx electron-builder --win portable zip --x64 --publish never "-c.win.artifactName=RJC-TV-Control-x64.zip"
+
+      - name: Build arm64 (portable exe + zip)
+        shell: bash
+        run: npx electron-builder --win portable zip --arm64 --publish never "-c.win.artifactName=RJC-TV-Control-arm64.zip" "-c.portable.artifactName=RJC-TV-Control-arm64.exe"
+
+      - name: Release title from the tagged commit
+        id: meta
+        shell: bash
+        run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.meta.outputs.subject }}
+          body: 'ZIP recommended; unzip into C:\RJC-TV.'
+          generate_release_notes: true
+          files: |
+            release/RJC-TV-Control.exe
+            release/RJC-TV-Control-arm64.exe
+            release/RJC-TV-Control-x64.zip
+            release/RJC-TV-Control-arm64.zip
