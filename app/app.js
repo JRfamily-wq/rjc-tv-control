@@ -1074,6 +1074,7 @@ function diagTab() {
         <span class="k">App</span><span class="v">RJC TV Control v${esc(info.version)} · Electron ${esc(info.electron)} · Chrome ${esc(info.chrome)}</span>
         <span class="k">Platform</span><span class="v">${esc(info.platform)}</span>
         <span class="k">Running since</span><span class="v">${new Date(info.startedAt).toLocaleTimeString()} (${relTime(info.startedAt)})</span>
+        <span class="k">Keep-awake</span><span class="v">${info.keepAwake ? 'active — Windows sleep, screen-off and idle lock held off' : 'off — Windows power settings apply'}</span>
         <span class="k">This PC</span><span class="v">${info.nets.map((n) => `${esc(n.name)}: ${esc(n.address)}`).join(' · ') || 'no network'}</span>
         <span class="k">Status poll</span><span class="v">every ${esc(cfg.pollSeconds)}s · ${cfg.boxes.length} feeds · ${cfg.tvs.length} TVs</span>
         <span class="k">Config</span><span class="v">${esc(info.userData)}</span>
@@ -1259,6 +1260,8 @@ function generalTab() {
     <div class="card slim"><h3>${I.contrast} Display &amp; sleep</h3>
       <div class="field-row"><label>Launch fullscreen<span class="hint">Kiosk-style start (F11 toggles any time)</span></label>
         <span class="switch"><input type="checkbox" ${cfg.launchFullscreen ? 'checked' : ''} data-bind="launchFullscreen"/><span class="track"></span></span></div>
+      <div class="field-row"><label>Keep this PC awake<span class="hint">While the app is open, Windows won't sleep, blank the screen, or lock</span></label>
+        <span class="switch"><input type="checkbox" ${cfg.keepAwake ? 'checked' : ''} data-bind="keepAwake"/><span class="track"></span></span></div>
       <div class="field-row"><label>Sleep screen<span class="hint">Dims to a clock when idle; any tap wakes it</span></label>
         <span class="switch"><input type="checkbox" ${cfg.sleepEnabled ? 'checked' : ''} data-bind="sleepEnabled"/><span class="track"></span></span></div>
       <div class="field-row"><label>Sleep after<span class="hint">Minutes idle before the clock takes over</span></label>
@@ -2085,6 +2088,8 @@ document.addEventListener('change', async (e) => {
     await saveCfg({ preview: { ...cfg.preview, boxId: el.value || null } });
   } else if (bind === 'lockTuning') {
     await saveCfg({ lockTuning: el.checked });
+  } else if (bind === 'keepAwake') {
+    await saveCfg({ keepAwake: el.checked });
   } else if (bind === 'sleepEnabled') {
     await saveCfg({ sleepEnabled: el.checked });
   } else if (bind === 'sleepMinutes') {

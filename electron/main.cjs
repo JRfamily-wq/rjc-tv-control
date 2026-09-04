@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, dialog, shell, powerSaveBlocker } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -71,6 +71,30 @@ function log(level, source, message) {
   broadcast('log', entry);
 }
 
+// ---------- keep-awake ----------
+// The gym touchscreens must stay on and unlocked through a whole shift.
+// 'prevent-display-sleep' pins ES_DISPLAY_REQUIRED|ES_SYSTEM_REQUIRED on
+// Windows: no system sleep, no screen-off, no screensaver — and since the
+// idle lock rides on those, no lock either. A domain "machine inactivity
+// limit" policy is the one thing that can still lock; only IT can lift that.
+// The app's own sleep-screen clock is unaffected — that's the burn-in guard.
+let keepAwakeId = null;
+function syncKeepAwake() {
+  const want = store.load().keepAwake;
+  const have = keepAwakeId !== null && powerSaveBlocker.isStarted(keepAwakeId);
+  if (want && !have) {
+    keepAwakeId = powerSaveBlocker.start('prevent-display-sleep');
+    log('info', 'app', 'Keep-awake on — PC sleep, screen-off and idle lock held off while the app is open');
+  } else if (!want && have) {
+    powerSaveBlocker.stop(keepAwakeId);
+    keepAwakeId = null;
+    log('info', 'app', 'Keep-awake off — Windows power settings back in charge');
+  }
+}
+app.on('will-quit', () => {
+  if (keepAwakeId !== null && powerSaveBlocker.isStarted(keepAwakeId)) powerSaveBlocker.stop(keepAwakeId);
+});
+
 async function pollBoxes(boxes) {
   const CONC = 8;
   let idx = 0;
@@ -132,6 +156,7 @@ ipcMain.handle('state:get', () => ({ config: store.load(), statuses }));
 ipcMain.handle('config:update', (_e, partial) => {
   const cfg = store.update(partial || {});
   broadcast('config', cfg);
+  syncKeepAwake();
   pollAll();
   return cfg;
 });
@@ -605,6 +630,7 @@ ipcMain.handle('diag:info', () => {
     node: process.versions.node,
     platform: `${os.platform()} ${os.release()} (${os.arch()})`,
     startedAt: STARTED_AT,
+    keepAwake: keepAwakeId !== null && powerSaveBlocker.isStarted(keepAwakeId),
     userData: app.getPath('userData'),
     nets,
   };
@@ -685,6 +711,7 @@ ipcMain.handle('config:import', async () => {
     if (!raw || !Array.isArray(raw.tvs) || !Array.isArray(raw.boxes)) throw new Error('not an RJC TV Control config');
     const cfg = store.update(raw);
     broadcast('config', cfg);
+    syncKeepAwake();
     pollAll();
     log('info', 'config', `Config imported from ${r.filePaths[0]}`);
     return { ok: true };
@@ -696,6 +723,7 @@ ipcMain.handle('config:openFolder', () => { shell.openPath(app.getPath('userData
 ipcMain.handle('config:reset', () => {
   const cfg = store.reset();
   broadcast('config', cfg);
+  syncKeepAwake();
   pollAll();
   log('warn', 'config', 'Config reset to demo defaults');
   return { ok: true };
@@ -800,6 +828,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   const cfg = store.load();
   log('info', 'app', `RJC TV Control v${app.getVersion()} started — ${cfg.tvs.length} TVs on ${cfg.boxes.length} feeds${cfg.demoMode ? ' (demo mode)' : ''}`);
+  syncKeepAwake();
   createWindow();
   await pollAll();
   schedule();
