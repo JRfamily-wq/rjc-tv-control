@@ -80,6 +80,7 @@ function defaults() {
     lockTuning: false,
     sleepEnabled: true,
     sleepMinutes: 3,
+    keepAwake: true,
     serial: {
       baud: 9600,
       commands: { volUp: '', volDown: '', muteToggle: '', powerOn: '', powerOff: '' },
