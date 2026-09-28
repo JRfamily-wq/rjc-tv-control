@@ -30,6 +30,23 @@ function req(ip, path, body, token, timeoutMs = 6000) {
   });
 }
 
+function get(ip, path, token, timeoutMs = 3500) {
+  return new Promise((resolve, reject) => {
+    const r = https.request({
+      host: ip, port: 7345, path, method: 'GET',
+      rejectUnauthorized: false, timeout: timeoutMs,
+      headers: token ? { AUTH: token } : {},
+    }, (res) => {
+      let b = '';
+      res.on('data', (c) => { b += c; });
+      res.on('end', () => { try { resolve(JSON.parse(b)); } catch { reject(new Error('bad response')); } });
+    });
+    r.on('timeout', () => r.destroy(new Error('timeout')));
+    r.on('error', reject);
+    r.end();
+  });
+}
+
 const ok = (j) => j && j.STATUS && String(j.STATUS.RESULT).toUpperCase() === 'SUCCESS';
 
 const pending = new Map(); // ip -> PAIRING_REQ_TOKEN
@@ -69,4 +86,12 @@ async function key(ip, token, name) {
   return true;
 }
 
-module.exports = { pairStart, pairFinish, key };
+// true = screen on. SmartCast keeps its API up in standby, so this answers
+// even while the panel is dark.
+async function powerState(ip, token) {
+  const j = await get(ip, '/state/device/power_mode', token);
+  if (!ok(j) || !Array.isArray(j.ITEMS) || !j.ITEMS.length) throw new Error('no power state');
+  return Number(j.ITEMS[0].VALUE) === 1;
+}
+
+module.exports = { pairStart, pairFinish, key, powerState };

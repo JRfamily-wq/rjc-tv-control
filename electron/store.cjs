@@ -81,6 +81,7 @@ function defaults() {
     sleepEnabled: true,
     sleepMinutes: 3,
     keepAwake: true,
+    wallGuard: { feeds: true, tvs: true, from: '', to: '' },
     serial: {
       baud: 9600,
       commands: { volUp: '', volDown: '', muteToggle: '', powerOn: '', powerOff: '' },

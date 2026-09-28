@@ -1249,6 +1249,7 @@ function presetsTab() {
 
 function generalTab() {
   const p = cfg.preview || {};
+  const g = cfg.wallGuard || {};
   const devs = ui.devices || [];
   return `${setHead('General', 'The essentials up top; advanced fallbacks tucked below.')}
     <div class="card slim"><h3>${I.shield} Security</h3>
@@ -1266,6 +1267,18 @@ function generalTab() {
         <span class="switch"><input type="checkbox" ${cfg.sleepEnabled ? 'checked' : ''} data-bind="sleepEnabled"/><span class="track"></span></span></div>
       <div class="field-row"><label>Sleep after<span class="hint">Minutes idle before the clock takes over</span></label>
         <input type="number" value="${esc(cfg.sleepMinutes)}" data-bind="sleepMinutes" min="1" max="60"/></div>
+    </div>
+    <div class="card slim"><h3>${I.power} Keep the wall awake</h3>
+      <div class="field-row"><label>Wake sleeping feeds<span class="hint">A receiver that drops into standby on its own is woken on the next status poll</span></label>
+        <span class="switch"><input type="checkbox" ${g.feeds ? 'checked' : ''} data-bind="guard-feeds"/><span class="track"></span></span></div>
+      <div class="field-row"><label>Keep TVs powered on<span class="hint">Checks the TVs every minute and turns a dark one back on — beats wandering remotes. Standby pressed in this app is respected</span></label>
+        <span class="switch"><input type="checkbox" ${g.tvs ? 'checked' : ''} data-bind="guard-tvs"/><span class="track"></span></span></div>
+      <div class="field-row"><label>Active hours<span class="hint">Blank = around the clock; overnight spans like 22:00–06:00 work</span></label>
+        <span style="display:flex;gap:8px;align-items:center">
+          <input type="text" placeholder="always" value="${esc(g.from || '')}" data-bind="guard-from" maxlength="5" style="font-family:var(--mono);width:76px;text-align:center"/>
+          <span class="hint" style="margin:0">to</span>
+          <input type="text" placeholder="always" value="${esc(g.to || '')}" data-bind="guard-to" maxlength="5" style="font-family:var(--mono);width:76px;text-align:center"/>
+        </span></div>
     </div>
     <div class="card slim"><h3>${I.feed} Feeds &amp; data</h3>
       <div class="field-row"><label>Demo mode<span class="hint">30 simulated TVs on 13 feeds</span></label>
@@ -2090,6 +2103,18 @@ document.addEventListener('change', async (e) => {
     await saveCfg({ lockTuning: el.checked });
   } else if (bind === 'keepAwake') {
     await saveCfg({ keepAwake: el.checked });
+  } else if (bind === 'guard-feeds') {
+    await saveCfg({ wallGuard: { ...cfg.wallGuard, feeds: el.checked } });
+  } else if (bind === 'guard-tvs') {
+    await saveCfg({ wallGuard: { ...cfg.wallGuard, tvs: el.checked } });
+  } else if (bind === 'guard-from' || bind === 'guard-to') {
+    const key = bind === 'guard-from' ? 'from' : 'to';
+    const v = el.value.trim();
+    if (v === '' || /^([01]?\d|2[0-3]):[0-5]\d$/.test(v)) {
+      await saveCfg({ wallGuard: { ...cfg.wallGuard, [key]: v } });
+    } else {
+      el.value = (cfg.wallGuard || {})[key] || '';
+    }
   } else if (bind === 'sleepEnabled') {
     await saveCfg({ sleepEnabled: el.checked });
   } else if (bind === 'sleepMinutes') {
