@@ -95,6 +95,80 @@ app.on('will-quit', () => {
   if (keepAwakeId !== null && powerSaveBlocker.isStarted(keepAwakeId)) powerSaveBlocker.stop(keepAwakeId);
 });
 
+// ---------- wall guard ----------
+// The wall's job is to be on. Receivers drop to standby on their own (DirecTV
+// power saving, power blips) and gym-goers find TV remotes — the guard wakes
+// whatever it finds asleep. Standby/off pressed inside this app is respected
+// per device until it's woken from here again; active hours bound the whole
+// thing when set (blank = around the clock, 22:00–06:00 style spans wrap).
+const guardMuteFeeds = new Set();   // app-initiated standby — don't fight staff
+const guardMuteTvs = new Set();
+const guardFeedAttempt = new Map(); // boxId -> last wake attempt (throttle)
+const guardTvRefresh = new Map();   // tvId -> last blind ON (serial/IR)
+const GUARD_RETRY_MS = 60 * 1000;
+const GUARD_REFRESH_MS = 10 * 60 * 1000;
+
+const guardCfg = () => store.load().wallGuard || {};
+
+function guardInWindow(g) {
+  const parse = (s) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
+    return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null;
+  };
+  const from = parse(g.from), to = parse(g.to);
+  if (from == null || to == null || from === to) return true;
+  const d = new Date();
+  const now = d.getHours() * 60 + d.getMinutes();
+  return from < to ? (now >= from && now < to) : (now >= from || now < to);
+}
+
+async function guardFeedsNow() {
+  const g = guardCfg();
+  if (!g.feeds || !guardInWindow(g)) return;
+  const now = Date.now();
+  const asleep = store.load().boxes.filter((b) => {
+    const st = statuses[b.id];
+    return st && st.online && st.mode === 1 && !guardMuteFeeds.has(b.id)
+      && now - (guardFeedAttempt.get(b.id) || 0) >= GUARD_RETRY_MS;
+  });
+  if (!asleep.length) return;
+  await Promise.all(asleep.map(async (box) => {
+    guardFeedAttempt.set(box.id, now);
+    try {
+      await shef.power(box, true);
+      statuses[box.id] = { ...statuses[box.id], mode: 0, ts: Date.now() };
+      log('info', 'guard', `${box.name} was in standby — woke it`);
+    } catch (e) {
+      log('warn', 'guard', `Couldn't wake ${box.name}: ${e.message}`);
+    }
+  }));
+  broadcast('status', statuses);
+  pollSoon(asleep.map((b) => b.id), 1500);
+}
+
+async function guardTvsNow() {
+  const g = guardCfg();
+  if (!g.tvs || !guardInWindow(g)) return;
+  const now = Date.now();
+  await Promise.all(store.load().tvs.map(async (tv) => {
+    if (tv.demo || guardMuteTvs.has(tv.id)) return;
+    try {
+      if (tv.ctl === 'serial' || tv.ctl === 'ir') {
+        // No state readback on these paths — a discrete ON every few minutes
+        // is a no-op on a set that's already on.
+        if (now - (guardTvRefresh.get(tv.id) || 0) < GUARD_REFRESH_MS) return;
+        guardTvRefresh.set(tv.id, now);
+        await tvCommand(tv, 'powerOn');
+        return;
+      }
+      if (!tv.tvIp || !tv.tvToken) return;
+      if (await vizio.powerState(tv.tvIp, tv.tvToken)) return;
+      await vizio.key(tv.tvIp, tv.tvToken, 'powerOn');
+      log('info', 'guard', `${tv.name} was off — powered it back on`);
+    } catch { /* unreachable TV — next pass tries again */ }
+  }));
+}
+
 async function pollBoxes(boxes) {
   const CONC = 8;
   let idx = 0;
@@ -129,6 +203,7 @@ async function pollAll() {
     for (const id of Object.keys(statuses)) if (!ids.has(id)) delete statuses[id];
     await pollBoxes(cfg.boxes);
     broadcast('status', statuses);
+    await guardFeedsNow();
   } finally {
     polling = false;
   }
@@ -180,6 +255,7 @@ ipcMain.handle('tv:tune', async (_e, { boxIds, chan }) => {
       fail.push({ id, err: String(e.message || e) });
     }
   }));
+  ok.forEach((id) => guardMuteFeeds.delete(id)); // tuning implies "keep it awake"
   broadcast('status', statuses);
   pollSoon(ok, 1500);
   // Remember what was set from the panel — tiles display this even when a box
@@ -208,6 +284,9 @@ ipcMain.handle('tv:power', async (_e, { boxIds, on }) => {
       fail.push({ id, err: String(e.message || e) });
     }
   }));
+  // Suppress the guard by intent: staff chose standby, so the guard leaves
+  // those feeds alone until they're woken from the app again.
+  boxIds.forEach((id) => { if (on) guardMuteFeeds.delete(id); else guardMuteFeeds.add(id); });
   broadcast('status', statuses);
   pollSoon(ok, 1500);
   log(fail.length ? 'warn' : 'info', 'power', `${on ? 'Wake' : 'Standby'} → ${ok.length} feed${ok.length === 1 ? '' : 's'}${fail.length ? `, ${fail.length} failed` : ''}`);
@@ -319,8 +398,11 @@ async function vizioEach(tvIds, keyName) {
 ipcMain.handle('vizio:vol', (_e, { tvIds, action }) =>
   vizioEach(tvIds, action === 'mute' ? 'muteToggle' : action === 'up' ? 'volUp' : 'volDown'));
 
-ipcMain.handle('vizio:power', (_e, { tvIds, on }) =>
-  vizioEach(tvIds, on ? 'powerOn' : 'powerOff'));
+ipcMain.handle('vizio:power', async (_e, { tvIds, on }) => {
+  const r = await vizioEach(tvIds, on ? 'powerOn' : 'powerOff');
+  tvIds.forEach((id) => { if (on) guardMuteTvs.delete(id); else guardMuteTvs.add(id); });
+  return r;
+});
 
 // ---------- BSS speaker audio ----------
 const audioZone = (id) => ((store.load().audio || {}).zones || []).find((z) => z.id === id);
@@ -830,6 +912,7 @@ app.whenReady().then(async () => {
   log('info', 'app', `RJC TV Control v${app.getVersion()} started — ${cfg.tvs.length} TVs on ${cfg.boxes.length} feeds${cfg.demoMode ? ' (demo mode)' : ''}`);
   syncKeepAwake();
   createWindow();
+  setInterval(() => { guardTvsNow(); }, 60 * 1000);
   await pollAll();
   schedule();
 });
